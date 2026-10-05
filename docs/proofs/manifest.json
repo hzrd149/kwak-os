@@ -35,5 +35,7 @@
     "docs/proofs/vm-desktop.png": "c523b7578e11dc38df559b68fe5ec381cdc4e79228c93ccdbb480027e622b093",
     "docs/proofs/vm-launcher.png": "2ff04ec3263f6bac0fe56b29984bb1ef26984a425cfdea2485cac8c9615b0590"
   },
-  "vm_proofs": "vm-desktop.png and vm-launcher.png: all components from the built NixOS VM; see vm-results.json"
+  "vm_proofs": "vm-desktop.png and vm-launcher.png: all components from the built NixOS VM; see vm-results.json",
+  "source_commit": "b6e43480e7e7a2be55ea76e792d5f054864ec0c0",
+  "workspace_policy_update": "See workspaces-results.json for the later monocle configuration and its VM proof."
 }

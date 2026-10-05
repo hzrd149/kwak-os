@@ -5,6 +5,34 @@ The launcher is Wofi with a small opt-in `horizontal_grid` patch, retaining its
 upstream desktop-entry discovery, search, and execution. Four columns of three
 icons are visible; additional columns scroll horizontally.
 
+## One main window per workspace
+
+The updated configuration uses native [monocle](https://wiki.hypr.land/0.56.0/Configuring/Layouts/Monocle-Layout/)
+and an `empty` workspace rule for non-floating, non-modal windows. It has no
+split, float-toggle, move-window, or mouse drag/resize bindings. Super+Left/Right
+switch existing workspaces; Super+1…0 selects a workspace directly.
+
+The rebuilt VM passed `tests/workspaces.py`: three main windows occupy distinct
+workspaces and each fills the available area. Closing a window frees its workspace
+for reuse, a floating dialog stays on the active app workspace, and Wofi opens
+above the app without changing its workspace. There were no configuration errors.
+See [the results and current configuration checksums](proofs/workspaces-results.json).
+
+![One main window filling its workspace](proofs/workspace-a.png)
+
+![Wofi above the single app window](proofs/workspace-launcher.png)
+
+Run the test inside the disposable `kwakos-vm` with no open windows, using its
+Hyprland session environment:
+
+```sh
+python3 tests/workspaces.py --output /tmp/workspace-proof \
+  --grim /path/to/grim --zenity /path/to/zenity
+```
+
+The earlier launcher-only proofs below retain their original source commit in
+the manifest; `workspaces-results.json` records the updated desktop policy.
+
 ## Visual proofs
 
 The built NixOS VM booted from a fresh disk, autologged into Hyprland/UWSM, and

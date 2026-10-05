@@ -52,16 +52,20 @@ Desktop defaults are installed at `/etc/xdg/hypr/hyprland.lua`. A user's
 Older generated `.conf` files are preserved; port personal settings to Lua to
 override the system Lua configuration.
 
+Each new main window opens on an empty workspace and fills the available area
+using Hyprland's monocle layout. Empty workspaces are reused. Floating dialogs
+remain on the app workspace. Shortcuts for splits, floating, dragging, resizing,
+and moving windows between workspaces are removed; navigate workspaces to switch apps.
+
 | Control | Action |
 | --- | --- |
 | Super+R / Super+Space | Open Wofi |
 | Four-finger swipe up | Open Wofi |
 | Super+Q / Super+E | Kitty / Dolphin |
-| Super+C / Super+F / Super+V | Close / fullscreen / float window |
-| Super+arrows | Focus adjacent window |
-| Super+1…0 / Super+Shift+1…0 | Switch workspace / move window |
+| Super+C / Super+F | Close / fullscreen window |
+| Super+Left / Super+Right | Previous / next existing workspace |
+| Super+1…0 | Switch workspace |
 | Three-finger horizontal swipe | Switch workspace |
-| Super+left/right drag | Move / resize window |
 | Super+Shift+M | End the UWSM session |
 
 Wofi shows **four columns × three rows**, with icons above labels. More apps
