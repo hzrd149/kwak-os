@@ -1,6 +1,6 @@
 * {
   font-family: "DejaVu Sans Mono", monospace;
-  font-size: 12px;
+  font-size: 14px;
   border-radius: 0;
   box-shadow: none;
   text-shadow: none;
@@ -20,7 +20,7 @@ window {
 }
 
 #input {
-  min-height: 42px;
+  min-height: 46px;
   padding: 0 16px;
   margin: 0;
   background: #080808;
@@ -35,16 +35,17 @@ window {
 }
 
 #entry {
-  min-height: 126px;
+  min-height: 144px;
   padding: 0;
   margin: 0;
-  border: 1px solid transparent;
+  border: 8px solid transparent;
   background: #080808;
+  background-clip: padding-box;
 }
 
 #entry:selected {
   background: #1d1d1d;
-  border-color: #bdbdbd;
+  box-shadow: inset 0 0 0 1px #bdbdbd;
   outline: none;
 }
 
@@ -53,11 +54,13 @@ window {
 }
 
 #unselected, #selected {
-  margin: 20px 8px 16px;
+  margin: 24px 0;
 }
 
 #text {
   color: #bdbdbd;
+  font-size: 16px;
+  min-height: 20px;
 }
 
 #text:selected {

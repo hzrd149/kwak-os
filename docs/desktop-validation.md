@@ -5,6 +5,26 @@ The launcher is Wofi with a small opt-in `horizontal_grid` patch, retaining its
 upstream desktop-entry discovery, search, and execution. Four columns of three
 icons are visible; additional columns scroll horizontally.
 
+## Current launcher spacing
+
+The launcher now uses 160×160 cells, 64-pixel icons, 16-pixel labels, and an
+8-pixel inset around the selection outline. Equal vertical margins center each
+icon/label pair. Wofi's generated empty label is hidden only in horizontal-grid
+mode, removing the invisible row that pushed the content above center.
+
+![Larger icons and labels centered in separated square cells](proofs/launcher-refined.png)
+
+![Refined launcher in the rebuilt NixOS VM](proofs/vm-launcher-refined.png)
+
+All 13 interaction gates passed again against the rebuilt Nix Wofi artifact,
+including horizontal scrolling, resizing, keyboard launch, and synthetic touch
+pan/tap. [Measurements and checksums](proofs/launcher-refined-results.json),
+[horizontal overflow](proofs/launcher-refined-next.png), and
+[search](proofs/launcher-refined-search.png).
+
+The workspace and original launcher screenshots below retain the appearance of
+their respective earlier iterations.
+
 ## One main window per workspace
 
 The updated configuration uses native [monocle](https://wiki.hypr.land/0.56.0/Configuring/Layouts/Monocle-Layout/)

@@ -1,14 +1,14 @@
 show=drun
 prompt=EXEC_ / search applications
 width=640
-height=440
+height=528
 columns=4
 lines=3
 horizontal_grid=true
 orientation=vertical
 location=center
 allow_images=true
-image_size=48
+image_size=64
 no_actions=true
 no_custom_entry=true
 single_click=true

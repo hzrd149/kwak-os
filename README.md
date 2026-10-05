@@ -68,7 +68,9 @@ and moving windows between workspaces are removed; navigate workspaces to switch
 | Three-finger horizontal swipe | Switch workspace |
 | Super+Shift+M | End the UWSM session |
 
-Wofi shows **four columns × three rows**, with icons above labels. More apps
+Wofi shows **four columns × three rows**, with centered 64-pixel icons and
+16-pixel labels in 160-pixel square cells. Selection outlines sit 8 pixels
+inside each cell. More apps
 continue horizontally, ordered top-to-bottom within each column. Type to search,
 use arrows or Tab/Shift+Tab to select, PageUp/PageDown to move four columns,
 Enter to launch, and Escape to close. Scroll sideways with two fingers or drag
