@@ -7,6 +7,10 @@
   services.displayManager.sddm.enable = true;
   services.displayManager.sddm.wayland.enable = true;
   services.displayManager.defaultSession = "hyprland-uwsm";
+  services.displayManager.autoLogin = {
+    enable = true;
+    user = "kwak";
+  };
 
   services.pipewire = {
     enable = true;
