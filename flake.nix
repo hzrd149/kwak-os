@@ -1,18 +1,41 @@
 {
-  description = "kwakOS — stock NixOS with a Hyprland desktop";
+  description = "kwakOS — NixOS with a Hyprland desktop";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    # Keep Hyprland's own dependency pins and matching portal together.
+    hyprland.url = "github:hyprwm/Hyprland/v0.56.2";
+  };
 
   outputs =
-    { self, nixpkgs }:
+    {
+      self,
+      nixpkgs,
+      hyprland,
+    }:
     let
       system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
+      desktopHyprland =
+        hyprland.inputs.nixpkgs.legacyPackages.${system}.callPackage ./packages/hyprland.nix
+          {
+            inherit (hyprland.packages.${system}) hyprland;
+          };
+      desktopOverlay = final: prev: {
+        hyprland = desktopHyprland;
+        hyprlax = final.callPackage ./packages/hyprlax.nix { inherit (prev) hyprlax; };
+        wofi = final.callPackage ./packages/wofi.nix { inherit (prev) wofi; };
+      };
+      pkgs = import nixpkgs {
+        inherit system;
+        overlays = [ desktopOverlay ];
+      };
       mkHost =
         host:
         nixpkgs.lib.nixosSystem {
           inherit system;
+          specialArgs = { inherit hyprland; };
           modules = [
+            { nixpkgs.overlays = [ desktopOverlay ]; }
             ./modules/base.nix
             ./modules/desktop.nix
             host
@@ -26,6 +49,7 @@
       };
 
       packages.${system} = {
+        inherit (pkgs) hyprland hyprlax wofi;
         vm = self.nixosConfigurations.vm.config.system.build.vm;
         default = self.packages.${system}.vm;
       };
@@ -41,6 +65,32 @@
 
       formatter.${system} = pkgs.nixfmt-tree;
       checks.${system} = {
+        desktop-config =
+          assert nixpkgs.lib.hasPrefix "0.56.2+" pkgs.hyprland.version;
+          pkgs.runCommand "kwak-desktop-config-check" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+            export XDG_RUNTIME_DIR="$TMPDIR/runtime"
+            mkdir -m 700 "$XDG_RUNTIME_DIR"
+            if ! ${pkgs.hyprland}/bin/Hyprland \
+              --verify-config --config ${./config/hypr/hyprland.lua} > config-check.log 2>&1; then
+              cat config-check.log
+              exit 1
+            fi
+            cat config-check.log
+            grep -x 'config ok' config-check.log
+            python3 - <<'PYTHON'
+            import pathlib
+            import tomllib
+
+            demo = pathlib.Path("${pkgs.hyprlax}/share/hyprlax/pixel-city")
+            config = tomllib.loads((demo / "parallax.toml").read_text())
+            layers = config["global"]["layers"]
+            assert len(layers) == 6, "Expected the stock six-layer pixel-city demo"
+            for layer in layers:
+                image = demo / layer["path"]
+                assert image.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"), image
+            PYTHON
+            touch $out
+          '';
         vm = self.nixosConfigurations.vm.config.system.build.toplevel;
         physical = self.nixosConfigurations.physical.config.system.build.toplevel;
       };

@@ -1,0 +1,171 @@
+--- a/src/wofi.c
++++ b/src/wofi.c
+@@ -92,6 +92,7 @@
+ static enum location location;
+ static bool no_actions;
+ static uint64_t columns;
++static bool horizontal_grid;
+ static bool user_moved = false;
+ static uint32_t widget_count = 0;
+ static enum sort_order sort_order;
+@@ -575,6 +576,31 @@
+ 	gtk_widget_set_visible(box, resize_expander);
+ }
+ 
++/* Turn a wheel into horizontal travel; smooth trackpad deltas stay native. */
++static gboolean grid_scroll(GtkWidget* widget, GdkEventScroll* event, gpointer data) {
++	(void) data;
++	if(event->direction != GDK_SCROLL_UP && event->direction != GDK_SCROLL_DOWN) {
++		return FALSE;
++	}
++	GtkAdjustment* adjustment = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(widget));
++	double step = gtk_adjustment_get_step_increment(adjustment);
++	double direction = event->direction == GDK_SCROLL_DOWN ? 1 : -1;
++	gtk_adjustment_set_value(adjustment, gtk_adjustment_get_value(adjustment) + direction * step);
++	return TRUE;
++}
++
++/* Keep each tile at one quarter of the viewport, including long app names. */
++static void grid_tile(GtkWidget* widget, gpointer data) {
++	(void) data;
++	if(GTK_IS_LABEL(widget)) {
++		gtk_label_set_ellipsize(GTK_LABEL(widget), PANGO_ELLIPSIZE_END);
++		gtk_label_set_max_width_chars(GTK_LABEL(widget), 16);
++		gtk_label_set_xalign(GTK_LABEL(widget), 0.5);
++	} else if(GTK_IS_CONTAINER(widget)) {
++		gtk_container_foreach(GTK_CONTAINER(widget), grid_tile, NULL);
++	}
++}
++
+ static void update_surface_size(void) {
+ 	int64_t scroll_width = 0;
+ 	int64_t scroll_height = 0;
+@@ -645,12 +671,12 @@
+ 				++ratio;
+ 			}
+ 			if(ratio > 1) {
+-				gtk_widget_set_size_request(widget, -1, max_height * ratio);
++				gtk_widget_set_size_request(widget, horizontal_grid ? width / columns : -1, max_height * ratio);
+ 			} else {
+ 				max_height = allocation->height;
+ 			}
+ 		} else {
+-			gtk_widget_set_size_request(widget, -1, max_height);
++			gtk_widget_set_size_request(widget, horizontal_grid ? width / columns : -1, max_height);
+ 		}
+ 	} else {
+ 		max_height = allocation->height;
+@@ -713,9 +739,17 @@
+ 		}
+ 	}
+ 
++	if(horizontal_grid) {
++		gtk_orientable_set_orientation(GTK_ORIENTABLE(parent), GTK_ORIENTATION_VERTICAL);
++		gtk_box_set_spacing(GTK_BOX(parent), 10);
++		grid_tile(parent, NULL);
++	}
+ 	gtk_widget_set_halign(parent, content_halign);
+ 	GtkWidget* child = gtk_flow_box_child_new();
+ 	gtk_widget_set_name(child, "entry");
++	if(horizontal_grid) {
++		gtk_widget_set_size_request(child, width / columns, -1);
++	}
+ 	g_signal_connect(child, "size-allocate", G_CALLBACK(widget_allocate), NULL);
+ 
+ 	gtk_container_add(GTK_CONTAINER(child), parent);
+@@ -1267,6 +1301,12 @@
+ }
+ 
+ static void move_pgup(void) {
++	if(horizontal_grid) {
++		for(size_t count = 0; count < columns; ++count) {
++			move_left();
++		}
++		return;
++	}
+ 	uint64_t lines = height / max_height;
+ 	for(size_t count = 0; count < lines; ++count) {
+ 		move_up();
+@@ -1274,6 +1314,12 @@
+ }
+ 
+ static void move_pgdn(void) {
++	if(horizontal_grid) {
++		for(size_t count = 0; count < columns; ++count) {
++			move_right();
++		}
++		return;
++	}
+ 	uint64_t lines = height / max_height;
+ 	for(size_t count = 0; count < lines; ++count) {
+ 		move_down();
+@@ -1858,6 +1904,16 @@
+ 	lines = strtol(config_get(config, "lines", "0"), NULL, 10);
+ 	max_lines = lines;
+ 	columns = strtol(config_get(config, "columns", "1"), NULL, 10);
++	horizontal_grid = strcmp(config_get(config, "horizontal_grid", "false"), "true") == 0;
++	if(horizontal_grid) {
++		if(columns < 1 || lines < 1 || width < columns || strchr(width_str, '%') != NULL) {
++			fprintf(stderr, "horizontal_grid requires positive columns, lines and a pixel width >= columns\n");
++			exit(EXIT_FAILURE);
++		}
++		orientation = GTK_ORIENTATION_VERTICAL;
++		outer_orientation = GTK_ORIENTATION_VERTICAL;
++		no_actions = true;
++	}
+ 	sort_order = config_get_mnemonic(config, "sort_order", "default", 2, "default", "alphabetical");
+ 	line_wrap = config_get_mnemonic(config, "line_wrap", "off", 4, "off", "word", "char", "word_char") - 1;
+ 	bool global_coords = strcmp(config_get(config, "global_coords", "false"), "true") == 0;
+@@ -2093,9 +2149,21 @@
+ 		gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_EXTERNAL, GTK_POLICY_EXTERNAL);
+ 	}
+ 
++	if(horizontal_grid) {
++		gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll),
++			hide_scroll ? GTK_POLICY_EXTERNAL : GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
++		gtk_scrolled_window_set_kinetic_scrolling(GTK_SCROLLED_WINDOW(scroll), TRUE);
++		gtk_scrolled_window_set_capture_button_press(GTK_SCROLLED_WINDOW(scroll), TRUE);
++		g_signal_connect(scroll, "scroll-event", G_CALLBACK(grid_scroll), NULL);
++	}
++
+ 	inner_box = gtk_flow_box_new();
+ 	gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(inner_box), GTK_SELECTION_BROWSE);
+-	gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(inner_box), columns);
++	gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(inner_box), horizontal_grid ? lines : columns);
++	if(horizontal_grid) {
++		gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(inner_box), lines);
++		gtk_flow_box_set_homogeneous(GTK_FLOW_BOX(inner_box), TRUE);
++	}
+ 	gtk_orientable_set_orientation(GTK_ORIENTABLE(inner_box), orientation);
+ 	gtk_widget_set_halign(inner_box, halign);
+ 	gtk_widget_set_valign(inner_box, valign);
+@@ -2107,6 +2175,10 @@
+ 	gtk_box_set_homogeneous(GTK_BOX(wrapper_box), TRUE);
+ 	gtk_container_add(GTK_CONTAINER(wrapper_box), inner_box);
+ 	gtk_container_add(GTK_CONTAINER(scroll), wrapper_box);
++	if(horizontal_grid) {
++		gtk_flow_box_set_hadjustment(GTK_FLOW_BOX(inner_box),
++			gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(scroll)));
++	}
+ 
+ 	gtk_flow_box_set_filter_func(GTK_FLOW_BOX(inner_box), do_filter, NULL, NULL);
+ 	gtk_flow_box_set_sort_func(GTK_FLOW_BOX(inner_box), do_sort, NULL, NULL);
+--- a/modes/drun.c
++++ b/modes/drun.c
+@@ -127,7 +127,15 @@
+ 			if(info == NULL) {
+ 				info = gtk_icon_theme_lookup_icon_for_scale(theme, "application-x-executable", wofi_get_image_size(), wofi_get_window_scale(), 0);
+ 			}
+-			pixbuf = gtk_icon_info_load_icon(info, NULL);
++			gboolean dark = FALSE;
++			g_object_get(gtk_settings_get_default(), "gtk-application-prefer-dark-theme", &dark, NULL);
++			if(dark && gtk_icon_info_is_symbolic(info)) {
++				GdkRGBA foreground;
++				gdk_rgba_parse(&foreground, "#d8d8d8");
++				pixbuf = gtk_icon_info_load_symbolic(info, &foreground, NULL, NULL, NULL, NULL, NULL);
++			} else {
++				pixbuf = gtk_icon_info_load_icon(info, NULL);
++			}
+ 		}
+ 
+ 		if(pixbuf == NULL) {

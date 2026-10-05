@@ -1,0 +1,39 @@
+{
+  "captured": "2026-10-06",
+  "fixture_catalog_entries": 24,
+  "resolution": [
+    1280,
+    720
+  ],
+  "compositor": {
+    "version": "0.56.2",
+    "commit": "efb50993780079460b0cbed1363e2166a2de1d9f",
+    "runtime": "isolated nested session; host build of the release"
+  },
+  "launcher": {
+    "package": "/nix/store/8d0bcgdhl60j2zcxns762sgvndvvyckg-wofi-1.5.3",
+    "runtime": "exact Nix artifact with its Nix GTK libraries",
+    "binary_sha256": "585fb3b8509d2721db2b8f2c535df71d2ea7c1de80b79d04a9595e4ef87a914f"
+  },
+  "wallpaper": {
+    "version": "2.2.7",
+    "runtime": "host build of pinned source with CI=1; packaged pixel-city config and six images",
+    "layers": 6
+  },
+  "input_evidence": "Keyboard via Hyprland; synthetic GDK wheel, smooth-scroll, touch-pan and touch-tap through actual GTK handlers",
+  "sha256": {
+    "config/hypr/hyprland.lua": "5452da318f88a1c5003f1ff1424de668ce260dba98145df195803e507d418cc1",
+    "config/wofi/config": "834bf6ea76241265cbd7ae282ee21944e132172259b0c3ccd3490a30b97a8df9",
+    "config/wofi/style.css": "1578f719336ef90f38beebc6318c3f28d01c4ff243d911ea930e3ec38ad51fdb",
+    "packages/wofi-horizontal.patch": "ba5b352124b52ff3be2c64bfac25bef33e357eb74d2114609f246ed7f97790d2",
+    "tests/wofi-input.c": "aa3cfd0015f45f764506313a87d0bc89bfec0a816b5bf5024ac0cc6e7af5f881",
+    "tests/wofi-input.py": "2c4b8035e1410abadca1c8808dd1b742f184dbf4f2bcfa79a25f5561c5eec85e",
+    "docs/proofs/desktop.png": "9a667a945619fa2ef613b93294806d42fc4c36a5d38f0d163ca52d23ae7b6d03",
+    "docs/proofs/launcher-first.png": "e03bb952de57f4eed8616079db1f6474f3bae70efa71e5e34518dde0507a76ab",
+    "docs/proofs/launcher-page-next.png": "19fe7e76c84c550f2e169abc323afc26a487b3b1394f0bebc9cd3267db5c3d87",
+    "docs/proofs/launcher-search.png": "90e9404f5cbf107c9c624f861a25c624134941b71a23023ae830491417601c81",
+    "docs/proofs/vm-desktop.png": "c523b7578e11dc38df559b68fe5ec381cdc4e79228c93ccdbb480027e622b093",
+    "docs/proofs/vm-launcher.png": "2ff04ec3263f6bac0fe56b29984bb1ef26984a425cfdea2485cac8c9615b0590"
+  },
+  "vm_proofs": "vm-desktop.png and vm-launcher.png: all components from the built NixOS VM; see vm-results.json"
+}
