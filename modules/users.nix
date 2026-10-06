@@ -126,6 +126,24 @@ in
         ExecStart = "${userd} cleanup";
       };
     };
+    systemd.services.kwak-userd-refresh = {
+      description = "Refresh Nostr identity profiles";
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${userd} refresh-profiles";
+      };
+    };
+    systemd.timers.kwak-userd-refresh = {
+      description = "Periodically refresh Nostr identity profiles";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "5min";
+        OnUnitActiveSec = "6h";
+        Persistent = true;
+      };
+    };
 
     services.greetd = {
       enable = true;

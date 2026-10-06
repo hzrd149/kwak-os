@@ -394,7 +394,8 @@ class UserManager:
         if entry is None:
             raise UserError("Unknown identity.")
         if entry.get("temporary"):
-            return {"username": username, "token": self.issue(username), "temporary": True}
+            return {"username": username, "token": self.issue(username), "temporary": True,
+                    "name": entry.get("name") or username}
         material = json.loads((self.key_dir(username) / "key.json").read_text())
         if entry["method"] == "bunker":
             return self.login_bunker(material["bunker"], username)
@@ -436,7 +437,8 @@ class UserManager:
                 write_private(keys / "key.json", json.dumps(material) + "\n")
                 entry.update(method=method, temporary=False)
             temporary = entry["temporary"]
-        return {"username": username, "token": self.issue(username), "temporary": temporary}
+        return {"username": username, "token": self.issue(username), "temporary": temporary,
+                "name": entry.get("name") or username}
 
     # Provisioning ------------------------------------------------------------
 
@@ -582,6 +584,30 @@ class UserManager:
             }
             for username, entry in items
         ]
+
+    def refresh_profiles(self):
+        """Fetch current kind 0 profiles without holding the registry lock on the network."""
+        with self.registry() as data:
+            identities = [(name, entry["pubkey"]) for name, entry in data.items()]
+        updated = []
+        for username, pubkey in identities:
+            try:
+                event = latest(self.nak.fetch(pubkey, self.config["relays"], kinds=(0,)),
+                               0, pubkey)
+                if event is None:
+                    continue
+                profile = self._profile(event)
+                with self.registry() as data:
+                    entry = data.get(username)
+                    if entry is None or entry["pubkey"] != pubkey:
+                        continue
+                    entry["name"] = profile["name"]
+                self._save_avatar(username, profile["picture"])
+                updated.append(username)
+            except (UserError, OSError) as error:
+                print(f"kwak-userd: profile refresh failed for {username}: {error}",
+                      file=sys.stderr)
+        return updated
 
     # Removal -----------------------------------------------------------------
 
@@ -806,8 +832,11 @@ def main(argv=None):
             print(json.dumps(UserManager().remove(argv[1])))
         elif command == "cleanup":
             print(json.dumps(UserManager().cleanup_temporary()))
+        elif command == "refresh-profiles":
+            print(json.dumps(UserManager().refresh_profiles()))
         else:
-            print("usage: kwak-userd serve|list|remove USER|cleanup|signout", file=sys.stderr)
+            print("usage: kwak-userd serve|list|remove USER|cleanup|refresh-profiles|signout",
+                  file=sys.stderr)
             return 2
     except UserError as error:
         print(f"kwak-userd: {error}", file=sys.stderr)

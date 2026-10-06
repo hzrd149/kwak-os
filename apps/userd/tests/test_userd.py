@@ -162,6 +162,21 @@ USER = "n3bf0c63fcb"
 
 
 class ProvisioningTests(ManagerCase):
+    def test_refresh_updates_saved_name_and_login_grant(self):
+        self.manager.login_nsec("11" * 32)
+        self.nak.events = [{"kind": 0, "pubkey": PUBKEY, "created_at": 2,
+                            "content": json.dumps({"display_name": "Alice"})}]
+        self.assertEqual(self.manager.refresh_profiles(), [USER])
+        self.assertEqual(self.manager.known()[0]["name"], "Alice")
+        self.assertEqual(self.manager.login_nsec("11" * 32)["name"], "Alice")
+
+    def test_refresh_ignores_unrelated_events(self):
+        self.manager.login_nsec("11" * 32)
+        self.nak.events = [{"kind": 0, "pubkey": "ab" * 32, "created_at": 2,
+                            "content": json.dumps({"name": "Impostor"})}]
+        self.assertEqual(self.manager.refresh_profiles(), [])
+        self.assertEqual(self.manager.known()[0]["name"], "")
+
     def test_first_login_provisions_user(self):
         self.nak.events = [
             {"kind": 0, "pubkey": PUBKEY, "created_at": 1,

@@ -130,7 +130,7 @@ class GreeterApp(App):
     TITLES = {
         "people": "KWAKOS", "unlock": "UNLOCK", "add": "SIGN IN", "create": "NEW ACCOUNT",
         "key": "EXISTING ACCOUNT", "bunker": "REMOTE SIGNER", "local": "LINUX USER",
-        "waiting": "REMOTE SIGNER",
+        "waiting": "REMOTE SIGNER", "welcome": "WELCOME",
     }
     BACK = {"unlock": "people", "add": "people", "create": "add", "key": "add",
             "bunker": "add", "local": "add"}
@@ -208,6 +208,10 @@ class GreeterApp(App):
                     yield Static("Connecting to your signer. Approve the login request there.",
                                  classes="hint")
                     yield buttons(back="Cancel")
+                with Vertical(id="welcome"):
+                    yield Static(id="welcome-name", classes="title")
+                    yield LoadingIndicator()
+                    yield Static("Starting your desktop…", classes="hint")
             yield Static(id="status")
         yield Footer()
 
@@ -241,8 +245,9 @@ class GreeterApp(App):
             self.query_one(focus).focus()
         else:
             # Otherwise the page's first control: its list, field, or button.
-            first = self.query_one(f"#{page}").query("OptionList, Input, Button").first()
-            first.focus()
+            controls = self.query_one(f"#{page}").query("OptionList, Input, Button")
+            if controls:
+                controls.first().focus()
 
     def say(self, message, error=False):
         status = self.query_one("#status", Static)
@@ -435,9 +440,15 @@ class GreeterApp(App):
         # Once greetd is starting the session it is too late to cancel.
         self.query_one("#waiting .back").disabled = True
         waiting = self.page == "waiting"
+        name = grant.get("name") or (
+            self.selected.get("name") if self.selected and
+            self.selected.get("username") == grant["username"] else ""
+        ) or grant["username"]
+        self.query_one("#welcome-name", Static).update(f"Welcome {name}")
+        self.show("welcome")
         self.job(lambda: self.greetd.login(grant["username"], grant["token"], self.command),
-                 lambda _: self.exit(), "Starting session…",
-                 failed=(lambda: self.show(self.waiting_back)) if waiting else None)
+                 lambda _: self.exit(), "",
+                 failed=lambda: self.show(self.waiting_back if waiting else "people"))
 
 
 class SignOutApp(App):
