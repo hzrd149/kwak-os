@@ -9,7 +9,7 @@
     "running": true,
     "layers": 5,
     "target_fps": 144,
-    "fps": 0.2,
+    "fps": 0.19,
     "parallax_input": "workspace:1.000",
     "compositor": "Sway",
     "socket": "/tmp/hyprlax-proof.sock",
@@ -25,10 +25,10 @@
     },
     "monitors": [
       {
-        "name": "output-45",
+        "name": "output-44",
         "size": [
-          1440,
-          480
+          1920,
+          1080
         ],
         "pos": [
           0,
@@ -224,44 +224,40 @@
       "measured_shift_px": 0,
       "identical_frames": true,
       "registration_error_rgb": 0.0,
-      "before_sha256": "1c49844e04285bdbbf91feafec9c2d11ddf62b46c9b590262fb8255c38949625",
-      "after_sha256": "1c49844e04285bdbbf91feafec9c2d11ddf62b46c9b590262fb8255c38949625"
+      "before_sha256": "5ba7c153c0cdcab8ec616ef4d7af125884e90cf9441a2fadd25df33feea3bc5a",
+      "after_sha256": "5ba7c153c0cdcab8ec616ef4d7af125884e90cf9441a2fadd25df33feea3bc5a"
     },
     "3.png": {
-      "measured_shift_px": -22,
+      "measured_shift_px": -49,
       "identical_frames": false,
-      "registration_error_rgb": 1.067800925925926,
-      "before_sha256": "dc53d3038cf283bde6df2641fa06c8febca81eda4c866a87bbfe41c267d078c9",
-      "after_sha256": "7d3a4380431163aaa16754b9573d6d68732c85778c33a86789d9a58d09466212"
+      "registration_error_rgb": 0.6701105967078189,
+      "before_sha256": "1483de5777727ef0063de99a6ef594bdacb30e8f7241858233b375d5dae6031a",
+      "after_sha256": "5a7bc8610b71d79ab678d1437faa8049c9adab4d06b2d0dcbc56328779e37a2f"
     },
     "2.png": {
-      "measured_shift_px": -36,
+      "measured_shift_px": -81,
       "identical_frames": false,
-      "registration_error_rgb": 3.858024691358025e-06,
-      "before_sha256": "933583ea523de5c0f11d68340d48849e56da594bab9cb6fb03998c2df65eeb34",
-      "after_sha256": "1378f4cfadeeed4b0f2f4ea0826b58796414052b700bb590f9c2034201e6630b"
+      "registration_error_rgb": 4.436728395061728e-05,
+      "before_sha256": "7608879d865feb4099a76398bd04feb4b5d014189bf448ac0fdd36d562e8e275",
+      "after_sha256": "7e45119d33dd468f0473ab9d79237da445ab4c028d60a287d9ebd5a8d65b9ab2"
     },
     "1.png": {
-      "measured_shift_px": -72,
+      "measured_shift_px": -162,
       "identical_frames": false,
-      "registration_error_rgb": 0.0009047067901234568,
-      "before_sha256": "c4725f281e9af4f19bcfe3398664781cfcfaf22150dd192d0e9b506826e078b7",
-      "after_sha256": "cea90bf6e864ee0842fd6766cf330a5b764572ef14f5fc87bd31fbbbe58e2198"
+      "registration_error_rgb": 0.0005510545267489712,
+      "before_sha256": "f1bde8076f454bf030e83662c1c4963a72d558dc00900ea791eb516120d021f4",
+      "after_sha256": "86f2ccb1ba861be7c698f3431e93452b86ab43f35735cfcfa128ea78821bb0b1"
     },
     "0.png": {
       "measured_shift_px": 0,
       "identical_frames": true,
       "registration_error_rgb": 0.0,
-      "before_sha256": "a497dfcc74ea357604ab3967d96d7a5887a4aa4fe99b2359684fe20e1171f0ef",
-      "after_sha256": "a497dfcc74ea357604ab3967d96d7a5887a4aa4fe99b2359684fe20e1171f0ef"
+      "before_sha256": "def5d0b889071024b3f390f89657f72161e76bfa95cb5ad22fedb0e066d0109c",
+      "after_sha256": "def5d0b889071024b3f390f89657f72161e76bfa95cb5ad22fedb0e066d0109c"
     }
   },
   "result": "PASS: foreground/sky identical; city movement 1 > 2 > 3 > 0",
   "hyprlax_source_nar_hash": "sha256-CkhHGPfYqGTPSFFzhOoIQCGi31wK7u+MYpWqeq55RJQ=",
-  "proof_sha256": {
-    "wallpaper.png": "73e32f1a844bf6a5abf6734a85a18f46e360c5f51139b406bc8ad5639deed5d7",
-    "wallpaper-motion.gif": "f795ceedd360ddaf0ca1682e183aec0bf992a47ff5c09bb47d7a9b32309055fe"
-  },
   "validation": [
     "Nix package derivation evaluation passed",
     "Evaluated postInstall executed; installed asset/config checks passed",
@@ -272,5 +268,26 @@
   "limitations": [
     "Runtime uses arm64 host build with Sway IPC whitespace proxy, not the x86_64 Nix artifact or Hyprland",
     "Full NixOS closure build and VM boot not rerun"
-  ]
+  ],
+  "capture": {
+    "viewport": [
+      1920,
+      1080
+    ],
+    "aspect_ratio": "16:9",
+    "screenshot": [
+      1920,
+      1080
+    ],
+    "animation": [
+      1280,
+      720
+    ],
+    "animation_encoding": "Actual compositor frames, timed by capture timestamps; 5 fps GIF",
+    "fit": "Unchanged cover fit; aspect ratio preserved with horizontal cropping"
+  },
+  "proof_sha256": {
+    "wallpaper.png": "26165c700d53e6e578c913fc86320a0a6b685fe94e1da3bcd6d662c8b4e188dd",
+    "wallpaper-motion.gif": "67a67c2ec326d07679eaf0a874dcec4defd6cb95c4bbce2ea614af6886866a4e"
+  }
 }

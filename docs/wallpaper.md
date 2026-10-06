@@ -41,6 +41,12 @@ cmp /tmp/3.png config/hyprlax/3.png
 
 ![Actual workspace transitions: stationary sky and rooftop, moving city](proofs/wallpaper-motion.gif)
 
+The capture viewport is **1920×1080 (16:9)**. The screenshot retains that native
+resolution; the animation is encoded at **1280×720**, preserving the same aspect
+ratio. Hyprlax uses its existing `cover` fit to crop the wide artwork to the
+viewport. Neither the Hyprland nor Hyprlax configuration was changed for this
+recapture.
+
 The captures use unmodified Hyprlax **2.2.7** (`make CI=1`) in an isolated,
 headless **Sway 1.9** session on Linux arm64 with software rendering. The source
 archive's NAR hash matches the pinned package hash
@@ -62,9 +68,10 @@ layers pixel-for-pixel, and measures city translation by image registration.
 [Runtime settings, checksums, and measured movements](proofs/wallpaper-results.json)
 record the result.
 
-At 1440×480, images **1**, **2**, and **3** moved **72**, **36**, and approximately
-**22 pixels** respectively during a one-workspace change (the distant target is
-21.6 pixels). Images **0** and **4** produced byte-identical before/after PNGs.
+At 1920×1080 with the retained `cover` fit, images **1**, **2**, and **3** moved
+**162**, **81**, and approximately **49 screen pixels** respectively during a
+one-workspace change. Images **0** and **4** produced byte-identical before/after
+PNGs. The existing blur on layers 2 and 3 is retained in these captures.
 Nix package evaluation, the evaluated asset installation step and its config
 assertions, upstream global-default comparison, and source/alpha checks passed.
 The full NixOS closure build and VM boot were not rerun on this macOS host.
@@ -88,7 +95,7 @@ Start Sway as that user with `XDG_RUNTIME_DIR=/tmp/kwak-wallpaper-runtime`,
 `WLR_LIBINPUT_NO_DEVICES=1`, using this minimal config:
 
 ```text
-output HEADLESS-1 mode 1440x480
+output HEADLESS-1 mode 1920x1080
 seat seat0 hide_cursor 100
 ```
 
@@ -104,6 +111,6 @@ python3 tests/wallpaper-proof.py \
 
 The runner requires the dedicated runtime directory and a single headless output.
 It writes the full composite, individual-layer before/after captures, animation
-frames with capture timestamps, the daemon log, and a JSON result. The 3:1 capture
-matches the supplied artwork's aspect ratio; the retained default fit behavior
-applies on other monitor shapes.
+frames with capture timestamps, the daemon log, and a JSON result. Set the
+isolated compositor output to 1920×1080 before capturing; no changes to the
+wallpaper settings or the shipped Hyprland configuration are needed.
