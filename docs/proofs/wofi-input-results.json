@@ -1,0 +1,30 @@
+{
+  "geometry": "PASS: four columns, three rows, twelve visible tiles; horizontal overflow only",
+  "resize": "PASS: live output resize and restore preserve 160px tiles and the four-by-three grid",
+  "measurements": {
+    "tile_width": 160,
+    "tile_height": 136,
+    "viewport_width": 640.0,
+    "content_width": 1280.0,
+    "wheel_scroll_x": 64.0,
+    "smooth_scroll_x": {
+      "before": 64.0,
+      "after": 212.531
+    },
+    "touch_scroll_x": {
+      "before": 212.531,
+      "after": 640.0
+    }
+  },
+  "arrows": "PASS: Right 0->3, Down 3->4, Left 4->1, Up 1->0",
+  "tab": "PASS: Tab advances and Shift+Tab returns to the previous tile",
+  "paging": "PASS: PageDown advances four columns and scrolls; PageUp returns",
+  "wheel": "PASS: synthetic GDK wheel down scrolls horizontally",
+  "trackpad": "PASS: synthetic GDK smooth horizontal delta scrolls",
+  "touch": "PASS: synthetic GDK touch sequence invokes GTK kinetic horizontal pan",
+  "escape": "PASS: launcher closes",
+  "empty_search": "PASS: zero matches, then Ctrl+A/Backspace restores the full catalog",
+  "search": "PASS: typed keyboard search leaves one matching application",
+  "launch": "PASS: Enter launches only the fixture Terminal desktop entry",
+  "tap": "PASS: synthetic GDK touch tap launches Audio; the earlier pan did not launch"
+}

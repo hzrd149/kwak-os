@@ -1,0 +1,13 @@
+{
+  "vm_package": "/nix/store/i3rmv52m4j30m4dcgxqs2zv4kjrr4nir-nixos-vm",
+  "hyprland_version": "0.56.2",
+  "hyprland_commit": "efb50993780079460b0cbed1363e2166a2de1d9f",
+  "autologin": "PASS: fresh VM entered Hyprland/UWSM",
+  "graphical_session": "active",
+  "config_errors": [],
+  "wallpaper": "PASS: autostarted hyprlax 2.2.7, six pixel-city layers",
+  "launcher_binding": "PASS: QEMU virtual keyboard Super+R opened Wofi",
+  "application_launch": "PASS: QEMU typed kitty and Enter; kitty Wayland client appeared",
+  "screenshots": "grim inside the guest; monitor set to 1280x720 for capture",
+  "physical_hardware": "not tested"
+}

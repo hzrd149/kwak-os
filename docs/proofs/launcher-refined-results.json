@@ -1,0 +1,48 @@
+{
+  "geometry": "PASS: four columns, three rows, twelve visible tiles; horizontal overflow only",
+  "resize": "PASS: live output resize and restore preserve 160px tiles and the four-by-three grid",
+  "measurements": {
+    "tile_width": 160,
+    "tile_height": 160,
+    "viewport_width": 640.0,
+    "content_width": 1280.0,
+    "wheel_scroll_x": 64.0,
+    "smooth_scroll_x": {
+      "before": 64.0,
+      "after": 212.531
+    },
+    "touch_scroll_x": {
+      "before": 212.531,
+      "after": 640.0
+    }
+  },
+  "arrows": "PASS: Right 0->3, Down 3->4, Left 4->1, Up 1->0",
+  "tab": "PASS: Tab advances and Shift+Tab returns to the previous tile",
+  "paging": "PASS: PageDown advances four columns and scrolls; PageUp returns",
+  "wheel": "PASS: synthetic GDK wheel down scrolls horizontally",
+  "trackpad": "PASS: synthetic GDK smooth horizontal delta scrolls",
+  "touch": "PASS: synthetic GDK touch sequence invokes GTK kinetic horizontal pan",
+  "escape": "PASS: launcher closes",
+  "empty_search": "PASS: zero matches, then Ctrl+A/Backspace restores the full catalog",
+  "search": "PASS: typed keyboard search leaves one matching application",
+  "launch": "PASS: Enter launches only the fixture Terminal desktop entry",
+  "tap": "PASS: synthetic GDK touch tap launches Audio; the earlier pan did not launch",
+  "style": {
+    "icon_px": 64,
+    "label_px": 16,
+    "outline_inset_px": 8,
+    "content_centering": "Empty generated labels hidden in grid mode; equal vertical margins."
+  },
+  "wofi_package": "/nix/store/rd7y7ng57qs14cbjg9kj55jf4hfjcd91-wofi-1.5.3",
+  "vm_package": "/nix/store/phx2j4nb4hxn6qvf1k0l2rni2zjg848n-nixos-vm",
+  "sha256": {
+    "config/wofi/config": "c1a2c04e9c1a525312cc2aec44946f6a407fed006cd2bf52cc3a709295d47d45",
+    "config/wofi/style.css": "f7dac3fc3c07534d1be3063ff30ee05ce091f2020c354c76f5aac36a962eb1ff",
+    "packages/wofi-horizontal.patch": "6c8bfeaefc7a85f955cf4bef150efe03f707f0005fc1ebb88239ec63bb3a39d6",
+    "docs/proofs/launcher-refined.png": "2a30e317c22560aaf434935cba5088c0a6e8c5851fee9a3f5f36d5ebce77b299",
+    "docs/proofs/launcher-refined-next.png": "3fc151d93e6cf366d4972160c8db56975ce60294725daafa0a226320253a6db1",
+    "docs/proofs/launcher-refined-search.png": "7f04a8fbeb5f57fc75ed575c0403f24f6a2ddc13e2a0cefc804272183a26d18c",
+    "docs/proofs/vm-launcher-refined.png": "b8c65a8f628de9e5df028102d72972c519ace698495c0e1012253c9f4606a6d8"
+  },
+  "vm_check": "PASS: rebuilt VM launcher opened through Super+R, visible 640x527 layer, no config errors; 1280x720 capture after resizing output and restarting wallpaper."
+}

@@ -1,0 +1,2 @@
+# Unified diff context intentionally includes spaces before source tabs.
+packages/*.patch -whitespace

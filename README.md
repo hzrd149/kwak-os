@@ -1,15 +1,17 @@
 # kwakOS
 
-A small, stock NixOS 26.05 configuration for x86_64 Linux, using Hyprland
-as the Wayland desktop and SDDM as the graphical login manager. The desktop
-uses the upstream Hyprland configuration generated on first launch; no theme
-or Home Manager layer is added. UWSM manages the desktop session.
+A small NixOS 26.05 configuration for x86_64 Linux, with Hyprland **0.56.2**,
+SDDM, and a UWSM-managed desktop session. Hyprlax renders its six-layer
+pixel-city demo behind a minimal black Wofi launcher. No Home Manager layer
+is required.
 
 ## Layout
 
 - `flake.nix` and `flake.lock`: system outputs and pinned Nixpkgs revision.
 - `modules/base.nix`: network, locale, timezone, administrator account, and Nix.
 - `modules/desktop.nix`: Hyprland, SDDM, audio, and basic desktop applications.
+- `config/`: Hyprland Lua defaults and Wofi configuration/style.
+- `packages/`: pinned hyprlax demo and Wofi horizontal-grid patch.
 - `hosts/vm`: local QEMU VM with a separate test password.
 - `hosts/physical`: UEFI installation with a hardware configuration template.
 
@@ -45,10 +47,43 @@ nix build .#vm
 ./result/bin/run-kwakos-vm-vm
 ```
 
-Hyprland's generated config is in `~/.config/hypr/hyprland.conf`. Its usual
-bindings include Super+Q for Kitty, Super+R for the launcher, Super+E for Dolphin,
-and Super+C to close a window. Consult that generated file for the exact bindings
-of the pinned release. Firefox is also installed.
+Desktop defaults are installed at `/etc/xdg/hypr/hyprland.lua`. A user's
+`~/.config/hypr/hyprland.lua` overrides them without being overwritten on rebuild.
+Older generated `.conf` files are preserved; port personal settings to Lua to
+override the system Lua configuration.
+
+Each new main window opens on an empty workspace and fills the available area
+using Hyprland's monocle layout. Empty workspaces are reused. Floating dialogs
+remain on the app workspace. Shortcuts for splits, floating, dragging, resizing,
+and moving windows between workspaces are removed; navigate workspaces to switch apps.
+
+| Control | Action |
+| --- | --- |
+| Super+R / Super+Space | Open Wofi |
+| Four-finger swipe up | Open Wofi |
+| Super+Q / Super+E | Kitty / Dolphin |
+| Super+C / Super+F | Close / fullscreen window |
+| Super+Left / Super+Right | Previous / next existing workspace |
+| Super+1…0 | Switch workspace |
+| Three-finger horizontal swipe | Switch workspace |
+| Super+Shift+M | End the UWSM session |
+
+Wofi shows **four columns × three rows**, with centered 64-pixel icons and
+16-pixel labels in 160-pixel square cells. Selection outlines sit 8 pixels
+inside each cell. More apps
+continue horizontally, ordered top-to-bottom within each column. Type to search,
+use arrows or Tab/Shift+Tab to select, PageUp/PageDown to move four columns,
+Enter to launch, and Escape to close. Scroll sideways with two fingers or drag
+on a touchscreen; a mouse wheel also moves horizontally. The launcher uses GTK's
+kinetic scrolling. The grid has a fixed 640-pixel logical width.
+
+`kwak-launcher` uses the checked-in Wofi defaults; `kwak-wallpaper` starts hyprlax
+2.2.7 with its upstream pixel-city demo. The package corrects a stray `VV` suffix
+in the upstream demo TOML; all six images and other settings are unchanged.
+The demo artwork is attributed to [CraftPix](https://craftpix.net/freebies/)
+by [hyprlax](https://github.com/sandwichfarm/hyprlax/tree/v2.2.7/examples/pixel-city).
+
+See [desktop validation and visual proofs](docs/desktop-validation.md).
 
 ## Install on a physical machine
 
@@ -111,13 +146,14 @@ Nix only includes Git-tracked files when resolving `.` as a flake. Stage new
 configuration files before evaluating or building them:
 
 ```sh
-git add flake.nix flake.lock modules hosts .gitignore README.md
+git add flake.nix flake.lock modules hosts config packages tests .gitignore README.md
 nix flake check --no-build
 nix fmt
 ```
 
 `nix flake check --no-build` evaluates both system configurations; it does not
-boot them. `nix flake check` builds both system closures. After editing the
+boot them. `nix flake check` builds both system closures and checks the desktop
+Lua configuration and pixel-city assets. After editing the
 hardware configuration, run the evaluation check again before deployment.
 
 Update the pin deliberately, then check and rebuild:
@@ -128,7 +164,9 @@ nix flake check --no-build
 ```
 
 Keep `system.stateVersion` at its installation value when updating packages.
-The lock file pins Nixpkgs, Hyprland, and its portal together.
+The lock file pins Nixpkgs and the separate Hyprland v0.56.2 release input.
+Hyprland retains its upstream dependency pins and matching portal. Updating
+Nixpkgs alone does not change the compositor release.
 
 References: [Hyprland on NixOS](https://wiki.hypr.land/Nix/Hyprland-on-NixOS/)
 and the [NixOS installation manual](https://nixos.org/manual/nixos/stable/#sec-installation).

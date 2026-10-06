@@ -1,0 +1,20 @@
+{
+  "separate_workspaces": [
+    2,
+    1,
+    3
+  ],
+  "monocle_geometry": "PASS: each main window fills its own workspace",
+  "reuse_empty_workspace": "PASS",
+  "floating_dialog": "PASS: dialog stays on the active app workspace",
+  "launcher_overlay": "PASS: Wofi overlays the app without changing workspace ownership",
+  "config_errors": [],
+  "status": "PASS",
+  "vm_package": "/nix/store/q3a34h255bcmn5bh5l35rrwgcdj91fhz-nixos-vm",
+  "sha256": {
+    "config/hypr/hyprland.lua": "3871359d0fda44eb93644771cddefda64934182e57c1861c0168fad08aceee66",
+    "tests/workspaces.py": "d010c45700277ced295a6d8262adc710f9b908ec980a1f0bf16e5c1fc0c000e8",
+    "docs/proofs/workspace-a.png": "64acdf6f758d36d3fde217335218bdc53a8129ff798a7a2c2e39dc9b5c06635f",
+    "docs/proofs/workspace-launcher.png": "ad33b08cbe956fc2294a236f0ba92ca4d6e80ee5cf1a98b4639ab4b18ab0d201"
+  }
+}

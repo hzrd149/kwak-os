@@ -1,0 +1,72 @@
+* {
+  font-family: "DejaVu Sans Mono", monospace;
+  font-size: 14px;
+  border-radius: 0;
+  box-shadow: none;
+  text-shadow: none;
+}
+
+window {
+  background: #080808;
+  color: #d8d8d8;
+  border: 1px solid #555555;
+}
+
+#outer-box, #inner-box, #scroll {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: #080808;
+}
+
+#input {
+  min-height: 46px;
+  padding: 0 16px;
+  margin: 0;
+  background: #080808;
+  color: #ffffff;
+  border: 0;
+  border-bottom: 1px solid #333333;
+  caret-color: #ffffff;
+}
+
+#input image {
+  color: #999999;
+}
+
+#entry {
+  min-height: 144px;
+  padding: 0;
+  margin: 0;
+  border: 8px solid transparent;
+  background: #080808;
+  background-clip: padding-box;
+}
+
+#entry:selected {
+  background: #1d1d1d;
+  box-shadow: inset 0 0 0 1px #bdbdbd;
+  outline: none;
+}
+
+#entry:hover {
+  background: #141414;
+}
+
+#unselected, #selected {
+  margin: 24px 0;
+}
+
+#text {
+  color: #bdbdbd;
+  font-size: 16px;
+  min-height: 20px;
+}
+
+#text:selected {
+  color: #ffffff;
+}
+
+#img {
+  margin: 0;
+}
