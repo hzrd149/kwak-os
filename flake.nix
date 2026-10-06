@@ -24,6 +24,7 @@
         hyprland = desktopHyprland;
         hyprlax = final.callPackage ./packages/hyprlax.nix { inherit (prev) hyprlax; };
         wofi = final.callPackage ./packages/wofi.nix { inherit (prev) wofi; };
+        kwak-settings = final.callPackage ./packages/settings.nix { };
       };
       pkgs = import nixpkgs {
         inherit system;
@@ -49,7 +50,12 @@
       };
 
       packages.${system} = {
-        inherit (pkgs) hyprland hyprlax wofi;
+        inherit (pkgs)
+          hyprland
+          hyprlax
+          wofi
+          kwak-settings
+          ;
         vm = self.nixosConfigurations.vm.config.system.build.vm;
         default = self.packages.${system}.vm;
       };
@@ -65,6 +71,22 @@
 
       formatter.${system} = pkgs.nixfmt-tree;
       checks.${system} = {
+        settings =
+          pkgs.runCommand "kwak-settings-check"
+            {
+              nativeBuildInputs = [
+                pkgs.python3
+                pkgs.lua5_5
+              ];
+            }
+            ''
+              cp -r ${./apps} apps
+              mkdir tests
+              cp ${./tests/test_settings.py} tests/test_settings.py
+              python3 -m unittest discover -s tests -p test_settings.py
+              lua ${./tests/window-modes.lua} ${./config/hypr/hyprland.lua}
+              touch $out
+            '';
         desktop-config =
           assert nixpkgs.lib.hasPrefix "0.56.2+" pkgs.hyprland.version;
           pkgs.runCommand "kwak-desktop-config-check" { nativeBuildInputs = [ pkgs.python3 ]; } ''
