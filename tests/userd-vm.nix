@@ -96,8 +96,8 @@ pkgs.testers.runNixOSTest {
         assert grant["temporary"], grant
         guid = machine.succeed(f"id -u {guest}").strip()
         machine.fail(f"test -e /var/lib/kwak-userd/keys/{guest}")
-        assert call("list_known") == []
-        assert pam(guest, grant["token"], "open_session") == 0
+        assert [p["temporary"] for p in call("list_known")] == [True]
+        assert pam(guest, call("unlock", username=guest)["token"], "open_session") == 0
         machine.succeed(f"runuser -u {guest} -- touch /tmp/guest-file")
         machine.succeed(f"echo x | pamtester greetd {guest} close_session")
         assert_gone(guest, guid)

@@ -236,9 +236,12 @@ class NsecTests(ManagerCase):
         self.assertTrue(result["temporary"])
         self.assertTrue(self.manager.entry(USER)["temporary"])
         self.assertIsNone(self.stored_key())
-        self.assertEqual(self.manager.known(), [])
+        listed = self.manager.known()
+        self.assertEqual([(p["username"], p["temporary"]) for p in listed], [(USER, True)])
+        # Still on the computer, so it opens again without a password.
+        self.assertTrue(self.manager.unlock(USER)["temporary"])
         with self.assertRaisesRegex(userd.UserError, "Unknown identity"):
-            self.manager.unlock(USER, "anything")
+            self.manager.unlock("n0000000000")
 
     def test_short_password_is_refused_before_provisioning(self):
         with self.assertRaisesRegex(userd.UserError, "at least 4"):

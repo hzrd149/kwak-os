@@ -385,10 +385,16 @@ class UserManager:
         return result
 
     def unlock(self, username, password=None):
-        """Sign in to a saved identity: its ncryptsec password, or bunker approval."""
+        """Sign in to an identity on this computer.
+
+        A temporary nsec identity has no password and opens directly; saved ones
+        need their ncryptsec password or the bunker's approval.
+        """
         entry = self.entry(username)
-        if entry is None or entry.get("temporary"):
+        if entry is None:
             raise UserError("Unknown identity.")
+        if entry.get("temporary"):
+            return {"username": username, "token": self.issue(username), "temporary": True}
         material = json.loads((self.key_dir(username) / "key.json").read_text())
         if entry["method"] == "bunker":
             return self.login_bunker(material["bunker"], username)
@@ -563,17 +569,15 @@ class UserManager:
         return {"scheduled": False}
 
     def known(self):
-        """Saved identities for the greeter; temporary ones are never listed."""
+        """Identities on this computer for the greeter, oldest first."""
         with self.registry() as data:
-            items = sorted(
-                (item for item in data.items() if not item[1].get("temporary")),
-                key=lambda item: item[1].get("created", 0),
-            )
+            items = sorted(data.items(), key=lambda item: item[1].get("created", 0))
         avatars = self.state / "avatars"
         return [
             {
                 "username": username, "npub": npub(entry["pubkey"]),
                 "name": entry.get("name") or "", "method": entry["method"],
+                "temporary": bool(entry.get("temporary")),
                 "avatar": str(avatars / username) if (avatars / username).exists() else "",
             }
             for username, entry in items
