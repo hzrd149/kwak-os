@@ -77,6 +77,10 @@ class FakeNak:
     def fetch(self, pubkey, relays, kinds=(0, 10002)):
         return self.events
 
+    def publish(self, kind, content, tags, relays, signer, home=None):
+        self.published = (kind, content, tags, relays, signer, home)
+        return {"kind": kind, "pubkey": self.pubkey, "id": "ab" * 32}
+
 
 class Clock:
     def __init__(self):
@@ -159,6 +163,54 @@ class ManagerCase(unittest.TestCase):
 
 
 USER = "n3bf0c63fcb"
+
+
+class AccountSettingsTests(ManagerCase):
+    def setUp(self):
+        super().setUp()
+        self.manager.login_nsec("11" * 32, "hunter2")
+        self.nak.events = [
+            {"kind": 0, "pubkey": PUBKEY, "created_at": 1,
+             "content": json.dumps({"name": "old", "custom": "preserved"})},
+            {"kind": 10002, "pubkey": PUBKEY, "created_at": 1,
+             "tags": [["r", "wss://out.example", "write"], ["r", "wss://in.example", "read"]]},
+            {"kind": 10063, "pubkey": PUBKEY, "created_at": 1,
+             "tags": [["server", "https://media.example"]]},
+        ]
+
+    def test_load_and_publish_profile_to_outbox(self):
+        result = self.manager.account_settings(USER)
+        self.assertEqual(result["media_servers"], ["https://media.example"])
+        self.manager.publish_settings(USER, "profile", {"name": "new"}, "hunter2")
+        kind, content, tags, relays, signer, home = self.nak.published
+        self.assertEqual(kind, 0)
+        self.assertEqual(json.loads(content), {"name": "new", "custom": "preserved"})
+        self.assertIn("wss://out.example", relays)
+        self.assertNotIn("wss://in.example", relays)
+        self.assertEqual(signer, "11" * 32)
+
+    def test_relay_edit_reaches_new_write_relay(self):
+        self.manager.publish_settings(USER, "relays", [["wss://new.example", "write"]], "hunter2")
+        self.assertIn("wss://new.example", self.nak.published[3])
+        self.assertEqual(self.nak.published[2], [["r", "wss://new.example", "write"]])
+
+    def test_invalid_edit_never_signs(self):
+        with self.assertRaises(userd.UserError):
+            self.manager.publish_settings(USER, "media_servers", ["http://unsafe.example"], "hunter2")
+        self.assertFalse(hasattr(self.nak, "published"))
+
+    def test_wrong_password_never_signs(self):
+        with self.assertRaisesRegex(userd.UserError, "Wrong password"):
+            self.manager.publish_settings(USER, "profile", {"name": "new"}, "bad")
+        self.assertFalse(hasattr(self.nak, "published"))
+
+    def test_temporary_nsec_can_publish_with_key(self):
+        self.nak.pubkey = "44" * 32
+        self.manager.login_nsec("22" * 32)
+        name = userd.username_for("44" * 32)
+        # The fake signer derives the same pubkey for every test key.
+        self.manager.publish_settings(name, "media_servers", ["https://media.example"], "11" * 32)
+        self.assertEqual(self.nak.published[4], "11" * 32)
 
 
 class ProvisioningTests(ManagerCase):

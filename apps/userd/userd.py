@@ -30,6 +30,7 @@ import threading
 import time
 import unicodedata
 import urllib.request
+from urllib.parse import urlparse
 
 
 SOCKET_PATH = "/run/kwak-userd.sock"
@@ -223,6 +224,19 @@ def relay_list(event):
     ]
 
 
+def valid_url(value, schemes):
+    if not isinstance(value, str) or len(value) > 2048 or any(c.isspace() for c in value):
+        return False
+    parsed = urlparse(value)
+    return parsed.scheme in schemes and bool(parsed.hostname) and not parsed.username and not parsed.password
+
+
+def outbox_relays(event):
+    return [tag[1] for tag in (event or {}).get("tags", [])
+            if isinstance(tag, list) and len(tag) >= 2 and tag[0] == "r"
+            and (len(tag) < 3 or tag[2] != "read") and valid_url(tag[1], ("wss", "ws"))]
+
+
 def gecos(name):
     return re.sub(r"[:,=\\\x00-\x1f\x7f]", "", name or "").strip()[:64]
 
@@ -287,6 +301,17 @@ class Nak:
             return parse_events(self._call(args + list(relays), timeout=15))
         except UserError:
             return []
+
+    def publish(self, kind, content, tags, relays, signer, home=None):
+        event = {"kind": kind, "content": content, "tags": tags}
+        env = {"NOSTR_SECRET_KEY": signer}
+        if home is not None:
+            env["HOME"] = str(home)
+        output = self._call(["event", *relays], stdin=json.dumps(event), env=env, timeout=120)
+        events = parse_events(output)
+        if len(events) != 1 or events[0].get("kind") != kind:
+            raise UserError("nak did not return the published event.")
+        return events[0]
 
 
 # --- The user manager --------------------------------------------------------
@@ -609,6 +634,76 @@ class UserManager:
                       file=sys.stderr)
         return updated
 
+    def account_settings(self, username):
+        entry = self.managed(username)
+        if entry is None:
+            raise UserError("Unknown Nostr identity.")
+        pubkey = entry["pubkey"]
+        events = self.nak.fetch(pubkey, self.config["relays"], kinds=(0, 10002, 10063))
+        relay_event = latest(events, 10002, pubkey)
+        relays = relay_list(relay_event)
+        if relays:
+            events += self.nak.fetch(pubkey, relays, kinds=(0, 10002, 10063))
+            relay_event = latest(events, 10002, pubkey)
+        profile = latest(events, 0, pubkey)
+        media = latest(events, 10063, pubkey)
+        try:
+            fields = json.loads(profile["content"]) if profile else {}
+        except (ValueError, TypeError):
+            fields = {}
+        if not isinstance(fields, dict):
+            fields = {}
+        return {"npub": npub(pubkey), "method": entry["method"],
+                "profile": fields,
+                "relays": [tag for tag in (relay_event or {}).get("tags", [])
+                           if isinstance(tag, list) and len(tag) >= 2 and tag[0] == "r"],
+                "media_servers": [tag[1] for tag in (media or {}).get("tags", [])
+                                  if isinstance(tag, list) and len(tag) >= 2 and tag[0] == "server"]}
+
+    def publish_settings(self, username, section, value, password=None):
+        entry = self.managed(username)
+        if entry is None:
+            raise UserError("Unknown Nostr identity.")
+        current = self.account_settings(username)
+        outbox = outbox_relays({"tags": current["relays"]})
+        if section == "profile":
+            if not isinstance(value, dict) or any(key not in ("name", "display_name", "about", "picture", "banner", "website", "nip05", "lud16") or not isinstance(item, str) or len(item) > 4096 for key, item in value.items()):
+                raise UserError("Invalid profile fields.")
+            profile = dict(current["profile"])
+            profile.update(value)
+            kind, content, tags = 0, json.dumps(profile, ensure_ascii=False), []
+        elif section == "relays":
+            if not isinstance(value, list) or not 1 <= len(value) <= 20 or any(not isinstance(row, list) or len(row) != 2 or not valid_url(row[0], ("wss", "ws")) or row[1] not in ("read", "write", "both") for row in value):
+                raise UserError("Enter 1–20 valid relay URLs and read/write modes.")
+            if not any(row[1] != "read" for row in value):
+                raise UserError("Keep at least one write relay.")
+            tags = [["r", url] + ([] if mode == "both" else [mode]) for url, mode in value]
+            outbox = outbox_relays({"tags": tags})
+            kind, content = 10002, ""
+        elif section == "media_servers":
+            if not isinstance(value, list) or len(value) > 20 or any(not valid_url(url, ("https",)) for url in value):
+                raise UserError("Enter valid HTTPS media server URLs.")
+            kind, content, tags = 10063, "", [["server", url] for url in value]
+        else:
+            raise UserError("Unknown account settings section.")
+        relays = list(dict.fromkeys([*outbox, *self.config["relays"]]))
+        if entry["method"] == "bunker":
+            signer = json.loads((self.key_dir(username) / "key.json").read_text())["bunker"]
+            home = self.key_dir(username) / "nak"
+        elif entry["method"] == "ncryptsec":
+            material = json.loads((self.key_dir(username) / "key.json").read_text())
+            signer = ncryptsec_decrypt(material["ncryptsec"], password or "")
+            home = None
+        else:
+            signer = secret_hex(password or "")
+            if self.nak.public_key(signer) != entry["pubkey"]:
+                raise UserError("This nsec belongs to a different identity.")
+            home = None
+        event = self.nak.publish(kind, content, tags, relays, signer, home)
+        if event.get("pubkey") != entry["pubkey"]:
+            raise UserError("The signer returned an event for a different identity.")
+        return {"id": event["id"], "relays": relays}
+
     # Removal -----------------------------------------------------------------
 
     def managed(self, username):
@@ -727,7 +822,7 @@ class Server:
         allowed = (
             (role == "root" and op in ROOT_OPS)
             or (role == "greeter" and op in GREETER_OPS)
-            or (role == "identity" and op == "signout")
+            or (role == "identity" and op in {"signout", "account_settings", "publish_settings"})
         )
         if not allowed:
             raise UserError("Permission denied.")
@@ -744,6 +839,8 @@ class Server:
             "close_session": lambda: m.close_session(r["username"]),
             "remove": lambda: m.remove(r["username"]),
             "signout": lambda: m.request_signout(name),
+            "account_settings": lambda: m.account_settings(name),
+            "publish_settings": lambda: m.publish_settings(name, r["section"], r["value"], r.get("password")),
         }
         return handlers[op]()
 

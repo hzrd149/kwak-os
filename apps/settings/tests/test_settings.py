@@ -171,5 +171,13 @@ class SettingsAppTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(pilot.app.query_one("#status").has_class("error"))
 
 
+class AccountFormTests(unittest.TestCase):
+    def test_relay_lines(self):
+        self.assertEqual(settings.parse_lines("wss://one\nwss://two read\n", "relays"),
+                         [["wss://one", "both"], ["wss://two", "read"]])
+        with self.assertRaises(settings.SettingsError):
+            settings.parse_lines("wss://one maybe", "relays")
+
+
 if __name__ == "__main__":
     unittest.main()

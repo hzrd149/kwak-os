@@ -91,3 +91,10 @@ checks the live layout, saved preference, reload behavior, and actual window
 geometry, and captures screenshots. It closes only its own test windows and
 leaves Scrolling saved for a separate full VM reboot check. Physical hardware
 validation is not covered by the VM.
+Settings includes Profile, Relays, and Media servers tabs for Nostr identities.
+Profile publishes kind 0 metadata, Relays publishes the NIP-65 kind 10002
+read/write list, and Media servers publishes the Blossom kind 10063 server list.
+Each publish uses `nak` through the user service and targets the account's write
+relays plus the system discovery relays. Saved ncryptsec accounts enter their
+password before publishing; temporary nsec accounts enter their nsec. Bunker
+accounts approve signing with their bunker.

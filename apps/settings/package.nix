@@ -13,7 +13,7 @@ let
   desktopItem = makeDesktopItem {
     name = "org.kwak.Settings";
     desktopName = "Settings";
-    comment = "Choose the window tiling mode";
+    comment = "Manage desktop and Nostr account settings";
     exec = "kwak-settings";
     icon = "preferences-system";
     categories = [
@@ -62,7 +62,7 @@ stdenvNoCC.mkDerivation {
   passthru = { inherit python; };
 
   meta = {
-    description = "Window mode settings for kwakOS";
+    description = "Desktop and Nostr account settings for kwakOS";
     mainProgram = "kwak-settings";
     platforms = lib.platforms.linux;
   };

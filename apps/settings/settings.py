@@ -2,8 +2,10 @@
 """The desktop's window tiling mode and the terminal Settings app."""
 
 import asyncio
+import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 import tempfile
 
@@ -13,7 +15,7 @@ from textual.app import App
 from textual.binding import Binding
 from textual.containers import Horizontal, VerticalScroll
 from textual.theme import Theme
-from textual.widgets import Button, Footer, OptionList, Static
+from textual.widgets import Button, Footer, Input, OptionList, Static, TabbedContent, TabPane, TextArea
 from textual.widgets.option_list import Option
 
 
@@ -23,6 +25,40 @@ MODES = {
     "dwindle": ("Dwindle", "Split the workspace as windows open"),
     "scrolling": ("Scrolling", "Move through a horizontal strip of windows"),
 }
+
+PROFILE_FIELDS = (("name", "Username"), ("display_name", "Display name"),
+                  ("about", "About"), ("picture", "Picture URL"),
+                  ("banner", "Banner URL"), ("website", "Website"),
+                  ("nip05", "NIP-05 address"), ("lud16", "Lightning address"))
+
+
+def account_request(op, **fields):
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(180)
+            sock.connect("/run/kwak-userd.sock")
+            stream = sock.makefile("rwb")
+            stream.write(json.dumps({"op": op, **fields}).encode() + b"\n")
+            stream.flush()
+            response = json.loads(stream.readline() or b"{}")
+    except (OSError, ValueError) as error:
+        raise SettingsError(f"Cannot reach account service: {error}") from error
+    if not response.get("ok"):
+        raise SettingsError(response.get("error") or "Account service did not respond.")
+    return response["result"]
+
+
+def parse_lines(text, section):
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if section == "relays":
+        result = []
+        for line in lines:
+            parts = line.split()
+            if len(parts) not in (1, 2) or (len(parts) == 2 and parts[1] not in ("read", "write", "both")):
+                raise SettingsError("Use one relay URL per line, optionally followed by read or write.")
+            result.append([parts[0], parts[1] if len(parts) == 2 else "both"])
+        return result
+    return lines
 
 
 class SettingsError(Exception):
@@ -162,6 +198,10 @@ class SettingsApp(App):
     #status.error { color: $error; }
     #buttons { height: auto; align-horizontal: right; margin-top: 1; }
     Button { border: none; height: 1; min-width: 10; margin-left: 2; }
+    TabbedContent { height: auto; max-height: 100%; }
+    TabPane { padding: 1 0; height: auto; }
+    Input { margin-bottom: 1; }
+    TextArea { height: 9; margin-bottom: 1; }
     """
     ENABLE_COMMAND_PALETTE = False
     BINDINGS = [Binding("escape,q", "quit", "Close")]
@@ -170,13 +210,30 @@ class SettingsApp(App):
         super().__init__()
         self.controller = controller or ModeController()
         self.current = None
+        self.account = None
 
     def compose(self):
         with VerticalScroll(id="panel") as panel:
             panel.border_title = "SETTINGS"
-            yield Static("Window tiling mode", classes="title")
-            yield Static("Choose how your windows use the workspace.", classes="hint")
-            yield OptionList(id="modes", disabled=True)
+            with TabbedContent(initial="window"):
+                with TabPane("Window", id="window"):
+                    yield Static("Window tiling mode", classes="title")
+                    yield Static("Choose how your windows use the workspace.", classes="hint")
+                    yield OptionList(id="modes", disabled=True)
+                with TabPane("Profile", id="profile"):
+                    for field, label in PROFILE_FIELDS:
+                        yield Static(label)
+                        yield Input(id=f"profile-{field}")
+                    yield Button("Publish profile", id="save-profile", disabled=True)
+                with TabPane("Relays", id="relays"):
+                    yield Static("One relay per line. Add read or write for a single direction.", classes="hint")
+                    yield TextArea(id="relay-list")
+                    yield Button("Publish relays", id="save-relays", disabled=True)
+                with TabPane("Media servers", id="media_servers"):
+                    yield Static("Blossom servers, one HTTPS URL per line.", classes="hint")
+                    yield TextArea(id="media-list")
+                    yield Button("Publish media servers", id="save-media_servers", disabled=True)
+            yield Input(placeholder="Account password or nsec to publish", password=True, id="account-password")
             yield Static("Reading desktop settings…", id="status")
             with Horizontal(id="buttons"):
                 yield Button("Close", id="close")
@@ -186,6 +243,23 @@ class SettingsApp(App):
         self.register_theme(THEME)
         self.theme = "kwak"
         self.load()
+        self.load_account()
+
+    @work(exclusive=True, group="account-load")
+    async def load_account(self):
+        try:
+            self.account = await asyncio.to_thread(account_request, "account_settings")
+        except SettingsError as error:
+            self.say(str(error), error=True)
+            return
+        profile = self.account["profile"]
+        for field, _ in PROFILE_FIELDS:
+            self.query_one(f"#profile-{field}", Input).value = str(profile.get(field) or "")
+        self.query_one("#relay-list", TextArea).text = "\n".join(
+            f"{tag[1]} {tag[2] if len(tag) > 2 else 'both'}" for tag in self.account["relays"])
+        self.query_one("#media-list", TextArea).text = "\n".join(self.account["media_servers"])
+        for section in ("profile", "relays", "media_servers"):
+            self.query_one(f"#save-{section}", Button).disabled = False
 
     def show_modes(self):
         modes = self.query_one("#modes", OptionList)
@@ -242,6 +316,31 @@ class SettingsApp(App):
     def on_button_pressed(self, event):
         if event.button.id == "close":
             self.exit()
+        elif event.button.id and event.button.id.startswith("save-"):
+            self.save_account(event.button.id.removeprefix("save-"))
+
+    @work(exclusive=True, group="account-save")
+    async def save_account(self, section):
+        if section == "profile":
+            value = {field: self.query_one(f"#profile-{field}", Input).value
+                     for field, _ in PROFILE_FIELDS}
+        else:
+            source = "#relay-list" if section == "relays" else "#media-list"
+            try:
+                value = parse_lines(self.query_one(source, TextArea).text, section)
+            except SettingsError as error:
+                self.say(str(error), error=True)
+                return
+        password_field = self.query_one("#account-password", Input)
+        password = password_field.value
+        password_field.value = ""
+        self.say(f"Publishing {section.replace('_', ' ')}…")
+        try:
+            result = await asyncio.to_thread(account_request, "publish_settings",
+                                             section=section, value=value, password=password)
+            self.say(f"Published to {len(result['relays'])} relays.")
+        except SettingsError as error:
+            self.say(str(error), error=True)
 
 
 def main():
