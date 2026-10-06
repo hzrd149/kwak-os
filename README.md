@@ -10,8 +10,8 @@ is required.
 - `flake.nix` and `flake.lock`: system outputs and pinned Nixpkgs revision.
 - `modules/base.nix`: network, locale, timezone, administrator account, and Nix.
 - `modules/desktop.nix`: Hyprland, SDDM, audio, and basic desktop applications.
-- `config/`: Hyprland Lua defaults and Wofi configuration/style.
-- `packages/`: pinned hyprlax demo and Wofi horizontal-grid patch.
+- `config/`: Hyprland/Hyprflow Lua defaults and Wofi configuration/style.
+- `packages/`: pinned desktop packages, Hyprflow plugin, and Wofi grid patch.
 - `hosts/vm`: local QEMU VM with a separate test password.
 - `hosts/physical`: UEFI installation with a hardware configuration template.
 
@@ -61,6 +61,7 @@ choice for later sessions. [Mode behavior and visual proofs](docs/settings.md).
 | Control | Action |
 | --- | --- |
 | Super+R / Super+Space | Open Wofi |
+| Super+Tab | Open / close Hyprflow workspace overview |
 | Super+, | Open Settings |
 | Four-finger swipe up | Open Wofi |
 | Super+Q / Super+E | Kitty / Dolphin |
@@ -70,6 +71,11 @@ choice for later sessions. [Mode behavior and visual proofs](docs/settings.md).
 | Super+1…0 | Switch workspace |
 | Three-finger horizontal swipe | Switch workspace |
 | Super+Shift+M | End the UWSM session |
+
+Hyprflow provides Cover Flow workspace navigation. While it is open, use
+Left/Right or 1–9 to select a workspace, Enter to activate it, or Escape to
+return to the original workspace. The default shows nine numeric cards plus
+existing workspaces on the focused monitor. [Configuration and verification](docs/hyprflow.md).
 
 Wofi shows **four columns × three rows**, with centered 64-pixel icons and
 16-pixel labels in 160-pixel square cells. Selection outlines sit 8 pixels

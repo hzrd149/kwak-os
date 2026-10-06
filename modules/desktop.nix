@@ -29,7 +29,7 @@ in
 
   # XDG system defaults leave each user's ~/.config overrides intact.
   environment.etc = {
-    "xdg/hypr/hyprland.lua".source = ../config/hypr/hyprland.lua;
+    "xdg/hypr/hyprland.lua".source = pkgs.kwak-hyprland-config;
     "xdg/wofi/config".source = ../config/wofi/config;
     "xdg/wofi/style.css".source = ../config/wofi/style.css;
   };

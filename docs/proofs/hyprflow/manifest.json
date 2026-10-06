@@ -1,0 +1,18 @@
+{
+  "upstream_commit": "2607d5de36902f8d770679bb40d72fa4a240c85c",
+  "base_commit": "6960ce725c48cb253ccf018b05b8dbf42c06b757",
+  "plugin_package": "/nix/store/45zl63kz04fx7kp5hs7xj44dvjg4mm9p-hyprflow-0-unstable-2026-10-06",
+  "vm_package": "/nix/store/2zbldrllrhcbkv8l7irm81b95kc4kz66-nixos-vm",
+  "plugin_sha256": "4205b74d98794f4cd7306ace015c0b6d8e65a58752db33dfb64dc4213f541aaf",
+  "keyboard_actions": 17,
+  "sha256": {
+    "config/hypr/hyprflow.lua": "82747fefd06e40e253c0b3ec2a1ae9ffb79edd097f01e37ae4710581961c707c",
+    "packages/hyprflow.nix": "8172e15a665742f9665f678ae2eef754c03f2438a5464d5bc81ffb1bdaa8e5ad",
+    "flake.nix": "3ceecfccd7ee6ffe7eb677968bf4912f12b2186494146bb0c100aea50d322b8f",
+    "modules/desktop.nix": "90b5170691398fff81694b95a55361f956a6358464ea5926e2e2df0f77fd32e4",
+    "tests/hyprflow.py": "2a8ea60cedb86ed13d6b5560c3e080354ee7e6088c8aa3f7881eb7f0746f3f92",
+    "tests/hyprflow-keys.py": "906b0527320ebe2d884cc12dbe023c7aa47e2d2e9a1bce10f41a048e005dbcbd",
+    "docs/proofs/hyprflow/overview.png": "c3b3673d4bdc1d327bbf1eaf52f7345189e977964f9d223c9eb6919db51a73ac",
+    "docs/proofs/hyprflow/accepted.png": "5cafd2241d1497f877b39a664380859c4518e7b72f226248595dc88384a221df"
+  }
+}
