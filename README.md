@@ -1,7 +1,7 @@
 # kwakOS
 
 A small NixOS 26.05 configuration for x86_64 Linux, with Hyprland **0.56.2**,
-SDDM, and a UWSM-managed desktop session. Hyprlax renders its six-layer
+a Nostr sign-in screen, and a UWSM-managed desktop session. Hyprlax renders its six-layer
 pixel-city demo behind a minimal black Wofi launcher. No Home Manager layer
 is required.
 
@@ -9,8 +9,11 @@ is required.
 
 - `flake.nix` and `flake.lock`: system outputs and pinned Nixpkgs revision.
 - `modules/base.nix`: network, locale, timezone, administrator account, and Nix.
-- `modules/desktop.nix`: Hyprland, SDDM, audio, and basic desktop applications.
+- `modules/desktop.nix`: Hyprland, audio, and basic desktop applications.
+- `modules/users.nix`: Nostr sign-in: greetd, the `kwak-userd` user manager, and PAM.
 - `config/`: Hyprland/Hyprflow Lua defaults and Wofi configuration/style.
+- `apps/`: kwakOS's own Python apps, one folder each (`settings`, `userd`,
+  `greeter`) with its own `package.nix`, `flake.nix`, and tests.
 - `packages/`: pinned desktop packages, Hyprflow plugin, and Wofi grid patch.
 - `hosts/vm`: local QEMU VM with a separate test password.
 - `hosts/physical`: UEFI installation with a hardware configuration template.
@@ -27,8 +30,8 @@ Install Nix on a Linux host, with flakes enabled. From this repository:
 nix run .#vm
 ```
 
-Log in through SDDM as **kwak**, password **nixos**, and select the Hyprland
-UWSM session if needed. The VM has 4 cores, 4 GiB RAM, and a persistent 20 GiB
+Sign in with a Nostr key, or choose **Local account…** and log in as **kwak**,
+password **nixos**. See [Nostr users](docs/users.md). The VM has 4 cores, 4 GiB RAM, and a persistent 20 GiB
 virtual disk created in the current directory. Shut it down before deleting
 `kwakos-vm.qcow2` to reset it. The password is applied when the account is first
 created; an existing VM disk retains later password changes.

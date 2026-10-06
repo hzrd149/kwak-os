@@ -65,12 +65,14 @@ unavailable.
 
 ```sh
 nix build .#kwak-settings .#vm
-nix build .#checks.x86_64-linux.settings .#checks.x86_64-linux.desktop-config
+nix build .#checks.x86_64-linux.window-modes .#checks.x86_64-linux.desktop-config
 nix flake check --no-build
 ```
 
-The settings check runs the controller's error/persistence tests and the real
-Lua policy against a small compositor boundary double. The desktop check parses
+Building `kwak-settings` runs the controller's error/persistence tests. The app is
+also a standalone flake (`nix build ./apps/settings`, `nix develop ./apps/settings`).
+The window-modes check runs the real Lua policy against a small compositor
+boundary double. The desktop check parses
 the configuration with the pinned Hyprland binary.
 
 For actual UI and layout checks, run this inside the disposable `kwakos-vm` with

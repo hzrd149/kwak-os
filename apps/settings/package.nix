@@ -7,7 +7,8 @@
   wrapGAppsHook3,
   makeWrapper,
   makeDesktopItem,
-  hyprland,
+  # null uses the hyprctl of the running desktop from PATH.
+  hyprland ? null,
 }:
 let
   python = python3.withPackages (ps: [ ps.pygobject3 ]);
@@ -27,7 +28,7 @@ in
 stdenvNoCC.mkDerivation {
   pname = "kwak-settings";
   version = "0.1.0";
-  src = ../apps;
+  src = ./.;
 
   nativeBuildInputs = [
     makeWrapper
@@ -35,7 +36,15 @@ stdenvNoCC.mkDerivation {
     gobject-introspection
   ];
   buildInputs = [ gtk3 ];
+  nativeCheckInputs = [ python3 ];
   dontBuild = true;
+  doCheck = true;
+
+  checkPhase = ''
+    runHook preCheck
+    python3 -m unittest discover -s tests
+    runHook postCheck
+  '';
 
   installPhase = ''
     runHook preInstall
@@ -45,9 +54,11 @@ stdenvNoCC.mkDerivation {
     cp ${desktopItem}/share/applications/* $out/share/applications/
     makeWrapper ${python}/bin/python3 $out/bin/kwak-settings \
       --add-flags "$out/share/kwak/settings.py" \
-      --prefix PATH : ${lib.makeBinPath [ hyprland ]}
+      ${lib.optionalString (hyprland != null) "--prefix PATH : ${lib.makeBinPath [ hyprland ]}"}
     runHook postInstall
   '';
+
+  passthru = { inherit python; };
 
   meta = {
     description = "Window mode settings for kwakOS";

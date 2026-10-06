@@ -18,5 +18,7 @@
   # BIOS/UEFI USB boot, the nixos console account, and passwordless sudo.
   # The desktop's autologin account also needs an unlocked local password.
   users.users.kwak.initialHashedPassword = "";
+  # The live installer session logs straight into kwak instead of the Nostr greeter.
+  kwak.nostrUsers.enable = false;
   services.openssh.enable = lib.mkForce false;
 }

@@ -1,0 +1,98 @@
+* {
+  font-family: "DejaVu Sans Mono", monospace;
+  font-size: 13px;
+  border-radius: 0;
+  box-shadow: none;
+  text-shadow: none;
+}
+
+window {
+  background: #000000;
+  color: #eeeeee;
+}
+
+.panel {
+  background: #080808;
+  border: 1px solid #333333;
+  padding: 28px;
+}
+
+.section-title {
+  font-size: 22px;
+  font-weight: bold;
+}
+
+.description, .status {
+  color: #aaaaaa;
+  font-size: 12px;
+}
+
+.mode-row, .link-row {
+  background: #101010;
+  border: 1px solid #333333;
+  padding: 12px 15px;
+}
+
+.mode-row:hover, .mode-row:focus, .link-row:hover, .link-row:focus {
+  background: #191919;
+  border-color: #dddddd;
+}
+
+.link-row label {
+  color: #cccccc;
+}
+
+.mode-name {
+  font-size: 16px;
+  font-weight: bold;
+}
+
+entry {
+  background: #101010;
+  color: #eeeeee;
+  border: 1px solid #555555;
+  padding: 9px;
+}
+
+entry:focus {
+  border-color: #eeeeee;
+}
+
+.secret {
+  background: #101010;
+  border: 1px dashed #777777;
+  padding: 12px;
+}
+
+button {
+  background: #141414;
+  color: #dddddd;
+  border: 1px solid #555555;
+  padding: 9px 20px;
+}
+
+button:hover, button:focus {
+  background: #252525;
+  border-color: #eeeeee;
+}
+
+button.apply {
+  background: #dddddd;
+  color: #080808;
+  border-color: #dddddd;
+}
+
+button.apply:hover, button.apply:focus {
+  background: #ffffff;
+  border-color: #ffffff;
+}
+
+button:disabled, button.apply:disabled {
+  background: #141414;
+  color: #777777;
+  border-color: #333333;
+}
+
+.error {
+  color: #ffaaaa;
+}

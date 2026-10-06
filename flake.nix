@@ -37,7 +37,11 @@
         );
         hyprlax = final.callPackage ./packages/hyprlax.nix { inherit (prev) hyprlax; };
         wofi = final.callPackage ./packages/wofi.nix { inherit (prev) wofi; };
-        kwak-settings = final.callPackage ./packages/settings.nix { };
+        # Each app under apps/ is also a standalone flake; the OS builds them
+        # from their package.nix with this flake's pinned nixpkgs.
+        kwak-settings = final.callPackage ./apps/settings/package.nix { };
+        kwak-userd = final.callPackage ./apps/userd/package.nix { };
+        kwak-greeter = final.callPackage ./apps/greeter/package.nix { };
         calamares-nixos-extensions = final.callPackage ./packages/calamares-nixos-extensions.nix {
           calamares-nixos-extensions = prev.calamares-nixos-extensions;
           kwakSource = self.outPath;
@@ -63,6 +67,7 @@
             { nixpkgs.overlays = [ desktopOverlay ]; }
             ./modules/base.nix
             ./modules/desktop.nix
+            ./modules/users.nix
             host
           ];
         };
@@ -81,6 +86,8 @@
           hyprlax
           wofi
           kwak-settings
+          kwak-userd
+          kwak-greeter
           kwak-hyprland-config
           ;
         vm = self.nixosConfigurations.vm.config.system.build.vm;
@@ -111,23 +118,15 @@
           assert !live.security.sudo.wheelNeedsPassword;
           assert live.fileSystems."/".fsType == "tmpfs";
           assert self.nixosConfigurations.physical.config.users.users.kwak.initialHashedPassword == null;
+          assert !live.kwak.nostrUsers.enable;
+          assert self.nixosConfigurations.physical.config.services.greetd.enable;
           pkgs.runCommand "kwak-iso-config-check" { } "touch $out";
-        settings =
-          pkgs.runCommand "kwak-settings-check"
-            {
-              nativeBuildInputs = [
-                pkgs.python3
-                pkgs.lua5_5
-              ];
-            }
-            ''
-              cp -r ${./apps} apps
-              mkdir tests
-              cp ${./tests/test_settings.py} tests/test_settings.py
-              python3 -m unittest discover -s tests -p test_settings.py
-              lua ${./tests/window-modes.lua} ${./config/hypr/hyprland.lua}
-              touch $out
-            '';
+        # App unit tests run in each package's checkPhase.
+        inherit (pkgs) kwak-settings kwak-userd kwak-greeter;
+        window-modes = pkgs.runCommand "kwak-window-modes-check" { nativeBuildInputs = [ pkgs.lua5_5 ]; } ''
+          lua ${./tests/window-modes.lua} ${./config/hypr/hyprland.lua}
+          touch $out
+        '';
         desktop-config =
           assert nixpkgs.lib.hasPrefix "0.56.2+" pkgs.hyprland.version;
           pkgs.runCommand "kwak-desktop-config-check" { nativeBuildInputs = [ pkgs.python3 ]; } ''
@@ -154,6 +153,10 @@
             PYTHON
             touch $out
           '';
+        userd = import ./tests/userd-vm.nix {
+          inherit pkgs;
+          usersModule = ./modules/users.nix;
+        };
         vm = self.nixosConfigurations.vm.config.system.build.toplevel;
         physical = self.nixosConfigurations.physical.config.system.build.toplevel;
       };

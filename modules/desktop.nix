@@ -1,4 +1,5 @@
 {
+  config,
   lib,
   pkgs,
   hyprland,
@@ -35,12 +36,16 @@ in
     "xdg/wofi/style.css".source = ../config/wofi/style.css;
   };
 
-  services.displayManager.sddm.enable = true;
-  services.displayManager.sddm.wayland.enable = true;
-  services.displayManager.defaultSession = "hyprland-uwsm";
-  services.displayManager.autoLogin = {
-    enable = true;
-    user = lib.mkDefault "kwak";
+  # Installed systems sign in through the Nostr greeter (modules/users.nix);
+  # without it, SDDM logs straight into the kwak account.
+  services.displayManager = lib.mkIf (!config.kwak.nostrUsers.enable) {
+    sddm.enable = true;
+    sddm.wayland.enable = true;
+    defaultSession = "hyprland-uwsm";
+    autoLogin = {
+      enable = true;
+      user = lib.mkDefault "kwak";
+    };
   };
 
   services.pipewire = {
