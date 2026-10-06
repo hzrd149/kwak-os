@@ -119,6 +119,9 @@
             speeds = {layer["path"]: layer["shift_multiplier"] for layer in layers}
             assert speeds["./0.png"] == speeds["./4.png"] == 0.0
             assert speeds["./1.png"] > speeds["./2.png"] > speeds["./3.png"] > 0.0
+            assert [layer.get("uv_offset", {}).get("y", 0.0) for layer in layers] == [
+                0.0, 0.05, 0.05, -0.20, -0.10
+            ], "Expected raised city and lowered foreground layers"
             assert sorted(p.name for p in demo.glob("*.png")) == [
                 "0.png", "1.png", "2.png", "3.png", "4.png"
             ], "No stock demo images should be installed"

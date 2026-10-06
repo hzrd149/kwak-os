@@ -4,13 +4,19 @@
 the Hyprlax package. No stock demo images are installed. The existing package
 path, `share/hyprlax/pixel-city/parallax.toml`, keeps the launcher compatible.
 
-| Image | Role | Shift multiplier | Draw order |
-| --- | --- | ---: | ---: |
-| `4.png` | Fixed sky | 0.0 | 1 (back) |
-| `3.png` | Distant city | 0.3 | 2 |
-| `2.png` | Middle city | 0.5 | 3 |
-| `1.png` | Near city | 1.0 | 4 |
-| `0.png` | Fixed camera / rooftop | 0.0 | 5 (front) |
+| Image | Role | Shift multiplier | Vertical placement | Draw order |
+| --- | --- | ---: | --- | ---: |
+| `4.png` | Fixed sky | 0.0 | Unchanged | 1 (back) |
+| `3.png` | Distant city | 0.3 | Up 5% | 2 |
+| `2.png` | Middle city | 0.5 | Up 5% | 3 |
+| `1.png` | Near city | 1.0 | Down 20% | 4 |
+| `0.png` | Fixed camera / rooftop | 0.0 | Down 10% | 5 (front) |
+
+Per-layer `uv_offset.y` exposes the skyline above the foreground: negative values
+move the artwork down, positive values move it up. Offsets are fractions of image
+height; at the 1920×1080 viewport, these correspond to 108 pixels down for image 0,
+216 pixels down for image 1, and 54 pixels up for images 2 and 3. The sky stays in
+place. These fixed composition offsets do not change the parallax speeds.
 
 The starting point is [Hyprlax v2.2.7's pixel-city TOML](https://github.com/sandwichfarm/hyprlax/blob/v2.2.7/examples/pixel-city/parallax.toml).
 All global values are retained: workspace input, 5% shift, four-second expo
@@ -44,8 +50,8 @@ cmp /tmp/3.png config/hyprlax/3.png
 The capture viewport is **1920×1080 (16:9)**. The screenshot retains that native
 resolution; the animation is encoded at **1280×720**, preserving the same aspect
 ratio. Hyprlax uses its existing `cover` fit to crop the wide artwork to the
-viewport. Neither the Hyprland nor Hyprlax configuration was changed for this
-recapture.
+viewport. This capture includes the per-layer vertical placement described above;
+the shipped Hyprland configuration is unchanged.
 
 The captures use unmodified Hyprlax **2.2.7** (`make CI=1`) in an isolated,
 headless **Sway 1.9** session on Linux arm64 with software rendering. The source
@@ -86,7 +92,8 @@ nix build .#checks.x86_64-linux.desktop-config
 ```
 
 The desktop check enforces the five-image set, back-to-front order, fixed layers,
-descending city speeds, valid PNG headers, and the upstream global defaults.
+descending city speeds, vertical placement, valid PNG headers, and the upstream
+global defaults.
 
 For an isolated capture, use Sway, grim, Pillow, and the built Hyprlax binary.
 Create `/tmp/kwak-wallpaper-runtime` with mode 0700, owned by the test user.

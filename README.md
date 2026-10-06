@@ -84,6 +84,8 @@ kinetic scrolling. The grid has a fixed 640-pixel logical width.
 [pixel-city configuration](https://github.com/sandwichfarm/hyprlax/blob/v2.2.7/examples/pixel-city/parallax.toml).
 The sky (`4.png`) and camera foreground (`0.png`) stay fixed. The city layers
 move at multipliers **1.0**, **0.5**, and **0.3** for images **1**, **2**, and **3**.
+The foreground is lowered 10% (image 0) and 20% (image 1); city layers 2 and 3
+are raised 5% to reveal the skyline.
 Workspace input, 5% shift, four-second expo easing, 144 FPS, and horizontal tiling
 retain the demo defaults. [Wallpaper proof and reproduction](docs/wallpaper.md).
 

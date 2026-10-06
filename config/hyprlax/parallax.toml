@@ -24,6 +24,7 @@ blur = 0.0
 # Distant city: slowest moving layer.
 [[global.layers]]
 path = "./3.png"
+uv_offset = { x = 0.0, y = 0.05 } # Raise the skyline by 5%.
 shift_multiplier = 0.3
 opacity = 1.0
 blur = 1.1
@@ -31,6 +32,7 @@ blur = 1.1
 # Middle city.
 [[global.layers]]
 path = "./2.png"
+uv_offset = { x = 0.0, y = 0.05 } # Raise the skyline by 5%.
 shift_multiplier = 0.5
 opacity = 1.0
 blur = 0.3
@@ -38,6 +40,7 @@ blur = 0.3
 # Near city: fastest moving layer.
 [[global.layers]]
 path = "./1.png"
+uv_offset = { x = 0.0, y = -0.20 } # Lower the near foreground by 20%.
 shift_multiplier = 1.0
 opacity = 1.0
 blur = 0.0
@@ -45,6 +48,7 @@ blur = 0.0
 # Foreground rooftop / camera position.
 [[global.layers]]
 path = "./0.png"
+uv_offset = { x = 0.0, y = -0.10 } # Lower the camera foreground by 10%.
 shift_multiplier = 0.0
 opacity = 1.0
 blur = 0.0
