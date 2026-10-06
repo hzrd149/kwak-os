@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-06",
+  "base_commit": "14cdc41ecee6497624f0f5af4851e088e3aa81d8",
+  "branch": "feat/window-mode-settings",
+  "runtime": "Built NixOS VM; GTK selections and Apply through Hyprland keyboard events; screenshots by grim inside guest",
+  "vm": "/nix/store/xh6mcic10z2b8bvy0ripsz3fmnglpckx-nixos-vm",
+  "settings_package": "/nix/store/89qn8al61493f303vq2k8yh8sj80fmvb-kwak-settings-0.1.0",
+  "sha256": {
+    "apps/settings.py": "4132a45d6f7f1419037563894f93de66cb7ed159ca7bdd2428e5b0773c9d2232",
+    "apps/settings.css": "1d65650bbe338daae33d0a41b8b7b6b36b20152d24948e9cf0d789194201ad4f",
+    "config/hypr/hyprland.lua": "8f3f3d7ebaed24bf0d1e47050023ba11f92f716213b080a3c166707e638ba280",
+    "packages/settings.nix": "6de0acdf8802a14b7187488a80b34ebd16c4b78094a4f9829a30f2aef7799cf7",
+    "modules/desktop.nix": "4b91282f881bae3e0d511c82ad120287901a777731f573863694ac3a900a078c",
+    "tests/test_settings.py": "d38ce04506ca2948a678daec1dabea06f4826a49fda45918d7731bae2e1511d6",
+    "tests/window-modes.lua": "a8e5931a6d62221cf1a3ac12ad214d8b55c02432bb923afe62c4e6e251859d88",
+    "tests/settings-modes.py": "4c2288f29935ac1f46f16ee4958e9a86a4d581e27ecff737d64081959622effb",
+    "docs/proofs/settings/layout-dwindle.png": "86e8e4da5b8e44ae67567e7897fc4f75ef0e9699194414ac1b0aaa8de4cb608f",
+    "docs/proofs/settings/layout-kwassik-2.png": "f2030cd0f52845ead3ee5675775332e6af2129f6b8b2bbfe9bb9323b8dd2257c",
+    "docs/proofs/settings/layout-kwassik-3.png": "ad2b3cf84d2b7f12cf8fa2f429e6e4573a6a5e4b7d386b68ca3e50d6a1cfe172",
+    "docs/proofs/settings/layout-kwassik-4.png": "33856a71f371d38442a61d4ccb9787c4754923954f358ee5bdce192f0053e353",
+    "docs/proofs/settings/layout-kwassik.png": "d62ceb5a9a4026f6c09a515f62de787d486337aaf6e471eb415c68a9df715775",
+    "docs/proofs/settings/layout-master.png": "b21e44da7d28d59a151ba985da3e323e331b6b35b51f0e109ce6b30cfa4a5d2c",
+    "docs/proofs/settings/layout-scrolling-first.png": "88cd140bce735fd3a947303f385b041a8fc274f3ac57bf906ef6f74e8795ee07",
+    "docs/proofs/settings/layout-scrolling.png": "86316743b4626c9b468002635f289cbe59544a0b858e8c331c6e0a656ff5978f",
+    "docs/proofs/settings/settings-after-reboot.png": "74837232f0db8d0c37302e4360eb5d71ce9b43de200d36ab28f911000e6930b2",
+    "docs/proofs/settings/settings-dwindle.png": "74d032932725d0de122db9f3ff8f97f3084312c09850a6622b082068313df74a",
+    "docs/proofs/settings/settings-kwassik.png": "72e8a50d672257dba00d839e3d4c111d3c82f6a55483e758b9538af77c2aeed1",
+    "docs/proofs/settings/settings-master.png": "1a3f35098a9d3613d18859dfc1a4fe6daa35666d1cecc6483c1ebfb3c727b017",
+    "docs/proofs/settings/settings-scrolling.png": "1f7a6b0dd081f5a59abe035063929229256e21856923352fd3b053bb6420629c"
+  }
+}

@@ -52,18 +52,21 @@ Desktop defaults are installed at `/etc/xdg/hypr/hyprland.lua`. A user's
 Older generated `.conf` files are preserved; port personal settings to Lua to
 override the system Lua configuration.
 
-Each new main window opens on an empty workspace and fills the available area
-using Hyprland's monocle layout. Empty workspaces are reused. Floating dialogs
-remain on the app workspace. Shortcuts for splits, floating, dragging, resizing,
-and moving windows between workspaces are removed; navigate workspaces to switch apps.
+The default **Kwassik** mode opens each main window on an empty workspace and
+fills the available area. Empty workspaces are reused; floating dialogs remain
+with the app. Open **Settings** from Wofi or press **Super+,** to choose Kwassik,
+Master, Dwindle, or Scrolling. Apply changes the current desktop and saves the
+choice for later sessions. [Mode behavior and visual proofs](docs/settings.md).
 
 | Control | Action |
 | --- | --- |
 | Super+R / Super+Space | Open Wofi |
+| Super+, | Open Settings |
 | Four-finger swipe up | Open Wofi |
 | Super+Q / Super+E | Kitty / Dolphin |
 | Super+C / Super+F | Close / fullscreen window |
-| Super+Left / Super+Right | Previous / next existing workspace |
+| Super+Left / Super+Right | Previous / next workspace in Kwassik; focus windows in other modes |
+| Super+Up / Super+Down | Focus windows in tiled modes |
 | Super+1…0 | Switch workspace |
 | Three-finger horizontal swipe | Switch workspace |
 | Super+Shift+M | End the UWSM session |

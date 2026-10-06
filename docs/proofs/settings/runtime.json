@@ -1,0 +1,538 @@
+{
+  "status": "PASS",
+  "hyprland": "Hyprland 0.56.2 built from branch unknown at commit efb50993780079460b0cbed1363e2166a2de1d9f dirty (unknown).\nDate: 2026-08-05\nTag: v0.56.2, commits: 0\n\nLibraries:\nHyprgraphics: built against 0.5.1, system has unknown\nHyprutils: built against 0.14.0, system has unknown\nHyprcursor: built against 0.1.13, system has unknown\nHyprlang: built against 0.6.8, system has unknown\nAquamarine: built against 0.14.0, system has unknown\n\nVersion ABI string: efb50993780079460b0cbed1363e2166a2de1d9f_aq_0.14_hu_0.14_hg_0.5_hc_0.1_hlg_0.6\nflags set:\nnix",
+  "modes": {
+    "master": {
+      "mode": "master",
+      "layout": "master",
+      "workspace": 1,
+      "saved_preference": "master",
+      "reload": {
+        "mode": "master",
+        "layout": "master",
+        "workspace": 1,
+        "saved_preference": "master"
+      },
+      "geometry": [
+        {
+          "address": "0x650690b36180",
+          "title": "WINDOW 1",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            9,
+            9
+          ],
+          "size": [
+            499,
+            991
+          ],
+          "floating": false
+        },
+        {
+          "address": "0x650690b46630",
+          "title": "WINDOW 2",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            510,
+            9
+          ],
+          "size": [
+            408,
+            329
+          ],
+          "floating": false
+        },
+        {
+          "address": "0x650691b0c930",
+          "title": "WINDOW 3",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            510,
+            340
+          ],
+          "size": [
+            408,
+            329
+          ],
+          "floating": false
+        },
+        {
+          "address": "0x6506917e3040",
+          "title": "WINDOW 4",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            510,
+            671
+          ],
+          "size": [
+            408,
+            329
+          ],
+          "floating": false
+        }
+      ],
+      "master_and_stack": true
+    },
+    "dwindle": {
+      "mode": "dwindle",
+      "layout": "dwindle",
+      "workspace": 1,
+      "saved_preference": "dwindle",
+      "reload": {
+        "mode": "dwindle",
+        "layout": "dwindle",
+        "workspace": 1,
+        "saved_preference": "dwindle"
+      },
+      "geometry": [
+        {
+          "address": "0x650690b34190",
+          "title": "WINDOW 1",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            9,
+            9
+          ],
+          "size": [
+            909,
+            495
+          ],
+          "floating": false
+        },
+        {
+          "address": "0x650691be8900",
+          "title": "WINDOW 2",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            9,
+            506
+          ],
+          "size": [
+            454,
+            494
+          ],
+          "floating": false
+        },
+        {
+          "address": "0x650690b3f410",
+          "title": "WINDOW 3",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            465,
+            754
+          ],
+          "size": [
+            453,
+            246
+          ],
+          "floating": false
+        },
+        {
+          "address": "0x650691b0b190",
+          "title": "WINDOW 4",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            465,
+            506
+          ],
+          "size": [
+            453,
+            246
+          ],
+          "floating": false
+        }
+      ],
+      "nonoverlapping_splits": true
+    },
+    "scrolling": {
+      "mode": "scrolling",
+      "layout": "scrolling",
+      "workspace": 1,
+      "saved_preference": "scrolling",
+      "reload": {
+        "mode": "scrolling",
+        "layout": "scrolling",
+        "workspace": 1,
+        "saved_preference": "scrolling"
+      },
+      "geometry": [
+        {
+          "address": "0x6506917b2d00",
+          "title": "WINDOW 1",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            -1266,
+            9
+          ],
+          "size": [
+            544,
+            991
+          ],
+          "floating": false
+        },
+        {
+          "address": "0x650690b36180",
+          "title": "WINDOW 2",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            -720,
+            9
+          ],
+          "size": [
+            545,
+            991
+          ],
+          "floating": false
+        },
+        {
+          "address": "0x650691f2ee60",
+          "title": "WINDOW 3",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            -173,
+            9
+          ],
+          "size": [
+            544,
+            991
+          ],
+          "floating": false
+        },
+        {
+          "address": "0x650691836930",
+          "title": "WINDOW 4",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            373,
+            9
+          ],
+          "size": [
+            545,
+            991
+          ],
+          "floating": false
+        }
+      ],
+      "horizontal_span": 2184,
+      "first_view": [
+        {
+          "address": "0x6506917b2d00",
+          "title": "WINDOW 1",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            9,
+            9
+          ],
+          "size": [
+            545,
+            991
+          ],
+          "floating": false
+        },
+        {
+          "address": "0x650690b36180",
+          "title": "WINDOW 2",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            556,
+            9
+          ],
+          "size": [
+            544,
+            991
+          ],
+          "floating": false
+        },
+        {
+          "address": "0x650691f2ee60",
+          "title": "WINDOW 3",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            1102,
+            9
+          ],
+          "size": [
+            545,
+            991
+          ],
+          "floating": false
+        },
+        {
+          "address": "0x650691836930",
+          "title": "WINDOW 4",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            1649,
+            9
+          ],
+          "size": [
+            544,
+            991
+          ],
+          "floating": false
+        }
+      ],
+      "last_view": [
+        {
+          "address": "0x6506917b2d00",
+          "title": "WINDOW 1",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            -1266,
+            9
+          ],
+          "size": [
+            544,
+            991
+          ],
+          "floating": false
+        },
+        {
+          "address": "0x650690b36180",
+          "title": "WINDOW 2",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            -720,
+            9
+          ],
+          "size": [
+            545,
+            991
+          ],
+          "floating": false
+        },
+        {
+          "address": "0x650691f2ee60",
+          "title": "WINDOW 3",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            -173,
+            9
+          ],
+          "size": [
+            544,
+            991
+          ],
+          "floating": false
+        },
+        {
+          "address": "0x650691836930",
+          "title": "WINDOW 4",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            373,
+            9
+          ],
+          "size": [
+            545,
+            991
+          ],
+          "floating": false
+        }
+      ],
+      "focus_pans_viewport": true
+    },
+    "kwassik": {
+      "mode": "kwassik",
+      "layout": "monocle",
+      "workspace": 1,
+      "saved_preference": "kwassik",
+      "reload": {
+        "mode": "kwassik",
+        "layout": "monocle",
+        "workspace": 1,
+        "saved_preference": "kwassik"
+      },
+      "geometry": [
+        {
+          "address": "0x6506917b2d00",
+          "title": "WINDOW 1",
+          "workspace": {
+            "id": 1,
+            "name": "1"
+          },
+          "monitor": 0,
+          "at": [
+            9,
+            9
+          ],
+          "size": [
+            909,
+            991
+          ],
+          "floating": false
+        },
+        {
+          "address": "0x650690b36180",
+          "title": "WINDOW 2",
+          "workspace": {
+            "id": 2,
+            "name": "2"
+          },
+          "monitor": 0,
+          "at": [
+            9,
+            9
+          ],
+          "size": [
+            909,
+            991
+          ],
+          "floating": false
+        },
+        {
+          "address": "0x650691f2ee60",
+          "title": "WINDOW 3",
+          "workspace": {
+            "id": 3,
+            "name": "3"
+          },
+          "monitor": 0,
+          "at": [
+            9,
+            9
+          ],
+          "size": [
+            909,
+            991
+          ],
+          "floating": false
+        },
+        {
+          "address": "0x650691836930",
+          "title": "WINDOW 4",
+          "workspace": {
+            "id": 4,
+            "name": "4"
+          },
+          "monitor": 0,
+          "at": [
+            9,
+            9
+          ],
+          "size": [
+            909,
+            991
+          ],
+          "floating": false
+        }
+      ],
+      "existing_windows_separated": true
+    }
+  },
+  "proofs": [
+    "settings-master.png",
+    "layout-master.png",
+    "settings-dwindle.png",
+    "layout-dwindle.png",
+    "settings-scrolling.png",
+    "layout-scrolling-first.png",
+    "layout-scrolling.png",
+    "settings-kwassik.png",
+    "layout-kwassik.png",
+    "layout-kwassik-2.png",
+    "layout-kwassik-3.png",
+    "layout-kwassik-4.png"
+  ],
+  "final": {
+    "mode": "scrolling",
+    "layout": "scrolling",
+    "workspace": 4,
+    "saved_preference": "scrolling",
+    "reload": {
+      "mode": "scrolling",
+      "layout": "scrolling",
+      "workspace": 4,
+      "saved_preference": "scrolling"
+    }
+  },
+  "reboot_check": {
+    "status": "PASS",
+    "new_boot": true,
+    "saved_mode": "scrolling",
+    "live_mode": "scrolling",
+    "native_layout": "scrolling",
+    "launcher": "Settings launched through Wofi using QEMU keyboard input",
+    "config_errors": []
+  }
+}
