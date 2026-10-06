@@ -38,6 +38,17 @@
         hyprlax = final.callPackage ./packages/hyprlax.nix { inherit (prev) hyprlax; };
         wofi = final.callPackage ./packages/wofi.nix { inherit (prev) wofi; };
         kwak-settings = final.callPackage ./packages/settings.nix { };
+        calamares-nixos-extensions = final.callPackage ./packages/calamares-nixos-extensions.nix {
+          calamares-nixos-extensions = prev.calamares-nixos-extensions;
+          kwakSource = self.outPath;
+        };
+        calamares-nixos = prev.calamares.override {
+          extraWrapperArgs = [
+            "--prefix XDG_DATA_DIRS : ${final.calamares-nixos-extensions}/share"
+            "--prefix XDG_CONFIG_DIRS : ${final.calamares-nixos-extensions}/etc"
+            "--add-flag --xdg-config"
+          ];
+        };
       };
       pkgs = import nixpkgs {
         inherit system;

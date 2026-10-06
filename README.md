@@ -104,8 +104,15 @@ ls result-iso/iso/*.iso
 
 The x86_64 image supports BIOS and UEFI boot from optical media or USB. It opens
 the kwakOS desktop as `kwak`; the live accounts have empty passwords and
-passwordless sudo. SSH is disabled. Changes disappear on reboot. The ISO does
-not partition disks or install automatically.
+passwordless sudo. SSH is disabled. Changes disappear on reboot. The graphical
+kwakOS installer opens automatically and is also available from the application
+launcher. It walks through locale, keyboard, account, hostname, and disk setup;
+the final confirmation is destructive when an erase-disk layout is selected.
+
+The installer copies this flake to `/etc/nixos/kwak-os`, replaces the physical
+hardware template with the detected target hardware, and installs
+`#physical`. The selected account password and root password are applied by the
+installer, and the installed system boots with SSH enabled for deployments.
 
 The [ISO workflow](.github/workflows/iso.yml) builds branch pushes and uploads the
 image plus checksums to Actions artifacts and GitHub Packages as an OCI artifact.

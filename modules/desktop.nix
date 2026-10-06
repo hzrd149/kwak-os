@@ -1,4 +1,5 @@
 {
+  lib,
   pkgs,
   hyprland,
   ...
@@ -39,7 +40,7 @@ in
   services.displayManager.defaultSession = "hyprland-uwsm";
   services.displayManager.autoLogin = {
     enable = true;
-    user = "kwak";
+    user = lib.mkDefault "kwak";
   };
 
   services.pipewire = {

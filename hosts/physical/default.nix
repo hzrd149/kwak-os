@@ -1,8 +1,11 @@
-{ ... }:
+{ lib, ... }:
 {
-  imports = [ ./hardware-configuration.nix ];
+  imports = [
+    ./hardware-configuration.nix
+  ]
+  ++ lib.optional (builtins.pathExists ./installer-settings.nix) ./installer-settings.nix;
 
-  networking.hostName = "kwakos";
+  networking.hostName = lib.mkDefault "kwakos";
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 

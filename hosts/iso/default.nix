@@ -6,7 +6,7 @@
   ...
 }:
 {
-  imports = [ (modulesPath + "/installer/cd-dvd/installation-cd-base.nix") ];
+  imports = [ (modulesPath + "/installer/cd-dvd/installation-cd-graphical-calamares.nix") ];
 
   networking.hostName = "kwakos-live";
   image.baseName = lib.mkForce "kwakos-${config.system.nixos.release}-${pkgs.stdenv.hostPlatform.system}";

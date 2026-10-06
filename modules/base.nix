@@ -17,9 +17,9 @@
   };
 
   time.timeZone = lib.mkDefault "America/Chicago";
-  i18n.defaultLocale = "en_US.UTF-8";
-  console.keyMap = "us";
-  services.xserver.xkb.layout = "us";
+  i18n.defaultLocale = lib.mkDefault "en_US.UTF-8";
+  console.keyMap = lib.mkDefault "us";
+  services.xserver.xkb.layout = lib.mkDefault "us";
 
   users.users.kwak = {
     isNormalUser = true;
