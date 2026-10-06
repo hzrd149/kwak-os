@@ -337,6 +337,11 @@ class Nak:
         return events[0]
 
 
+def log(message):
+    """A line for the journal; never card contents, keys, or passwords."""
+    print(f"kwak-userd: {message}", file=sys.stderr, flush=True)
+
+
 def usb_ids(path):
     """The (vendor, product) of the USB device above a sysfs path, if any."""
     for parent in (path, *path.parents):
@@ -403,13 +408,29 @@ class Sessions:
                      if session["user"] == username and session["class"] == "user"), None)
 
     def of_pid(self, pid):
-        """The session of a process, from its cgroup."""
+        """The session of a process, from its cgroup or its nearest ancestor's.
+
+        kitty moves the programs it runs into their own scope, so the greeter
+        inside it is found through kitty, which stays in the session.
+        """
         try:
-            cgroup = (self.proc / str(int(pid)) / "cgroup").read_text()
-        except (OSError, ValueError):
+            pid = int(pid)
+        except (TypeError, ValueError):
             return None
-        match = re.search(r"/session-([^/.]+)\.scope", cgroup)
-        return self.show(match.group(1)) if match else None
+        for _ in range(64):
+            if pid <= 1:
+                return None
+            try:
+                cgroup = (self.proc / str(pid) / "cgroup").read_text()
+                status = (self.proc / str(pid) / "status").read_text()
+            except OSError:
+                return None
+            match = re.search(r"/session-([^/.]+)\.scope", cgroup)
+            if match:
+                return self.show(match.group(1))
+            parent = re.search(r"^PPid:\s*(\d+)", status, re.MULTILINE)
+            pid = int(parent.group(1)) if parent else 0
+        return None
 
     def activate(self, session_id):
         self._loginctl("activate", session_id)
@@ -712,20 +733,26 @@ class UserManager:
         """
         active = self.sessions.active()
         if active is None:
+            log("card swipe ignored: no session on screen")
             return {"delivered": False}
         summary, secret = self._card_summary(event)
         if active["class"] == "greeter":
+            log(f"card swipe ({summary.get('format') or 'unreadable'}) for the sign-in "
+                f"screen, session {active['id']}")
             self._store_swipe(summary, secret)
             return {"delivered": True}
         if active["class"] != "user" or "error" in summary:
+            log(f"card swipe ignored in {active['class']} session {active['id']}")
             return {"delivered": False}
         if summary.get("known"):
             session = self.sessions.of_user(summary["username"])
             if session is not None:
+                log(f"card swipe: switching from session {active['id']} to {session['id']}")
                 if session["id"] != active["id"]:
                     self._lock(active)
                 self._switch_to(session)
                 return {"delivered": True}
+        log(f"card swipe: locking session {active['id']} and opening a switch greeter")
         self._store_swipe(summary, secret)
         self._lock(active)
         self._start_switch_greeter(active)

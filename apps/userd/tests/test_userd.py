@@ -185,6 +185,9 @@ class ManagerCase(unittest.TestCase):
     """A manager over a fake system in a temporary state directory."""
 
     def setUp(self):
+        quiet = patch.object(userd, "log")
+        self.log = quiet.start()
+        self.addCleanup(quiet.stop)
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         root = Path(self.directory.name)
@@ -701,12 +704,27 @@ class SessionsTests(unittest.TestCase):
         self.assertEqual(self.sessions.of_user("kwak")["id"], "3")
         self.assertIsNone(self.sessions.of_user("greeter"))
 
+    def process(self, pid, parent, cgroup):
+        Path(self.proc.name, str(pid)).mkdir()
+        Path(self.proc.name, str(pid), "cgroup").write_text(f"0::{cgroup}\n")
+        Path(self.proc.name, str(pid), "status").write_text(f"Name:\tx\nPPid:\t{parent}\n")
+
     def test_session_of_a_process(self):
-        Path(self.proc.name, "42").mkdir()
-        Path(self.proc.name, "42", "cgroup").write_text(
-            "0::/user.slice/user-990.slice/session-c1.scope\n")
+        self.process(42, 1, "/user.slice/user-990.slice/session-c1.scope")
         self.assertEqual(self.sessions.of_pid(42)["id"], "c1")
         self.assertIsNone(self.sessions.of_pid(43))
+
+    def test_session_of_a_program_kitty_moved_to_its_own_scope(self):
+        # cage and kitty stay in the greeter's session; kitty's child does not.
+        self.process(40, 1, "/user.slice/user-990.slice/session-c1.scope")
+        self.process(41, 40, "/user.slice/user-990.slice/session-c1.scope")
+        self.process(42, 41, "/user.slice/user-990.slice/user@990.service/app.slice/"
+                             "kitty-41-0.scope")
+        self.assertEqual(self.sessions.of_pid(42)["id"], "c1")
+
+    def test_process_outside_any_session(self):
+        self.process(50, 1, "/system.slice/kwak-userd.service")
+        self.assertIsNone(self.sessions.of_pid(50))
 
     def test_commands(self):
         self.sessions.lock("3")
@@ -746,6 +764,12 @@ class SwitchTests(ManagerCase):
         self.clock.now += 20
         self.manager.card_swipe(self.SKC2)
         self.assertEqual(len(self.started()), 2)
+
+    def test_swipe_decisions_are_logged_without_secrets(self):
+        self.manager.card_swipe({"format": "SKC1", "secret_key": "11" * 32})
+        lines = " ".join(call.args[0] for call in self.log.call_args_list)
+        self.assertIn("opening a switch greeter", lines)
+        self.assertNotIn("11" * 32, lines)
 
     def test_card_of_a_signed_in_account_switches_back(self):
         self.manager.login_nsec("11" * 32, "hunter2")
