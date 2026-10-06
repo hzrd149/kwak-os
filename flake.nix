@@ -49,6 +49,7 @@
       };
 
       packages.${system} = {
+        kwak-home = import ./packages/home.nix { inherit pkgs; };
         inherit (pkgs) hyprland hyprlax wofi;
         vm = self.nixosConfigurations.vm.config.system.build.vm;
         default = self.packages.${system}.vm;
@@ -65,6 +66,17 @@
 
       formatter.${system} = pkgs.nixfmt-tree;
       checks.${system} = {
+        home-screen = pkgs.runCommand "kwak-home-screen-check" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          export HOME="$TMPDIR/home"
+          export SHELL="${pkgs.bash}/bin/bash"
+          mkdir -p "$HOME"
+          python3 ${./tests/home-screen.py} \
+            --home ${self.packages.${system}.kwak-home}/bin/kwak-home \
+            --sway ${pkgs.sway-unwrapped}/bin/sway \
+            --grim ${pkgs.grim}/bin/grim \
+            --terminal ${pkgs.weston}/bin/weston-terminal
+          touch "$out"
+        '';
         desktop-config =
           assert nixpkgs.lib.hasPrefix "0.56.2+" pkgs.hyprland.version;
           pkgs.runCommand "kwak-desktop-config-check" { nativeBuildInputs = [ pkgs.python3 ]; } ''

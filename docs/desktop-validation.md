@@ -1,5 +1,23 @@
 # Desktop validation
 
+## Persistent home screen
+
+Quickshell 0.3.0 now provides a desktop application grid on the Wayland bottom
+layer, above hyprlax and beneath app windows. It uses three rows and four visible
+columns at normal display sizes, with horizontal overflow and one surface per
+monitor. The graphical-session user service manages its lifetime.
+
+`tests/home-screen.py` passed against the built `kwak-home` package in a
+disposable headless Sway session with 18 fixture desktop entries. It checks QML
+loading, absence of a tiled home window, application coverage, identical desktop
+pixels after closing the application, small-screen resizing, and monitor hotplug.
+The test is available as `nix build .#checks.x86_64-linux.home-screen`.
+
+This validates the shared Wayland layer-shell behavior. The rebuilt Hyprland VM
+still needs a check of UWSM service startup, click-to-launch, mouse-wheel and
+touch scrolling, and wallpaper composition; the older VM proofs below predate
+the home screen.
+
 The desktop targets Hyprland **0.56.2**, hyprlax **2.2.7**, and Wofi **1.5.3**.
 The launcher is Wofi with a small opt-in `horizontal_grid` patch, retaining its
 upstream desktop-entry discovery, search, and execution. Four columns of three

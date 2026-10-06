@@ -1,8 +1,9 @@
 # kwakOS
 
 A small NixOS 26.05 configuration for x86_64 Linux, with Hyprland **0.56.2**,
-SDDM, and a UWSM-managed desktop session. Hyprlax renders its six-layer
-pixel-city demo behind a minimal black Wofi launcher. No Home Manager layer
+SDDM, and a UWSM-managed desktop session. A persistent Quickshell application
+grid sits above Hyprlax's six-layer pixel-city wallpaper and beneath app windows.
+Wofi provides the shortcut launcher. No Home Manager layer
 is required.
 
 ## Layout
@@ -11,6 +12,7 @@ is required.
 - `modules/base.nix`: network, locale, timezone, administrator account, and Nix.
 - `modules/desktop.nix`: Hyprland, SDDM, audio, and basic desktop applications.
 - `config/`: Hyprland Lua defaults and Wofi configuration/style.
+- `config/quickshell/home/`: persistent desktop application grid.
 - `packages/`: pinned hyprlax demo and Wofi horizontal-grid patch.
 - `hosts/vm`: local QEMU VM with a separate test password.
 - `hosts/physical`: UEFI installation with a hardware configuration template.
@@ -56,6 +58,24 @@ Each new main window opens on an empty workspace and fills the available area
 using Hyprland's monocle layout. Empty workspaces are reused. Floating dialogs
 remain on the app workspace. Shortcuts for splits, floating, dragging, resizing,
 and moving windows between workspaces are removed; navigate workspaces to switch apps.
+The cursor hides after three seconds of inactivity and reappears when moved.
+
+Every empty desktop displays the home application grid automatically, including
+after the last window closes. It shows four columns of three applications on
+normal-sized displays, ordered alphabetically top-to-bottom in each column.
+Click or tap to launch; drag, scroll sideways, or use the mouse wheel to browse
+additional columns. The panel adapts to smaller screens and appears on each
+monitor, above the wallpaper and beneath application windows. It reserves no
+workspace space and takes no keyboard focus; Super+Space still opens searchable
+Wofi over the current app.
+
+The UWSM graphical session starts `kwak-home.service` and stops it at logout.
+Application launches use `uwsm app` and `gtk-launch` to handle desktop entries
+and terminal applications. After rebuilding, log out and back in to start the
+new service. Inspect it with `systemctl --user status kwak-home` or
+`journalctl --user -u kwak-home`. Build just the home screen with
+`nix build .#kwak-home`; inside a Hyprland session, run it with
+`./result/bin/kwak-home` when the service is stopped.
 
 | Control | Action |
 | --- | --- |

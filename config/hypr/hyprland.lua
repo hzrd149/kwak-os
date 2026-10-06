@@ -18,6 +18,7 @@ hl.config({
     },
     animations = { enabled = false },
     input = { kb_layout = "us", touchpad = { natural_scroll = true } },
+    cursor = { inactive_timeout = 3 },
     misc = { disable_hyprland_logo = true, disable_splash_rendering = true },
 })
 

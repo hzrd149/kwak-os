@@ -4,6 +4,7 @@
   ...
 }:
 let
+  kwak-home = import ../packages/home.nix { inherit pkgs; };
   kwak-launcher = pkgs.writeShellApplication {
     name = "kwak-launcher";
     runtimeInputs = [ pkgs.wofi ];
@@ -26,6 +27,19 @@ in
   programs.hyprland.package = pkgs.hyprland;
   programs.hyprland.portalPackage =
     hyprland.packages.${pkgs.stdenv.hostPlatform.system}.xdg-desktop-portal-hyprland;
+
+  systemd.user.services.kwak-home = {
+    description = "kwakOS desktop application grid";
+    wantedBy = [ "graphical-session.target" ];
+    partOf = [ "graphical-session.target" ];
+    after = [ "graphical-session-pre.target" ];
+    unitConfig.ConditionEnvironment = "WAYLAND_DISPLAY";
+    serviceConfig = {
+      ExecStart = "${kwak-home}/bin/kwak-home";
+      Restart = "on-failure";
+      RestartSec = 2;
+    };
+  };
 
   # XDG system defaults leave each user's ~/.config overrides intact.
   environment.etc = {
@@ -59,6 +73,7 @@ in
     hyprlax
     kwak-launcher
     kwak-wallpaper
+    kwak-home
     adwaita-icon-theme
     kdePackages.dolphin
     firefox
