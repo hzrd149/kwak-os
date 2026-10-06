@@ -24,7 +24,7 @@ these commands. CI rejects lock-file updates.
 The output is `result-iso/iso/kwakos-26.05-x86_64-linux.iso`. The image contains
 the pinned desktop, installer tools, and generic hardware support. Its root is
 in RAM; desktop changes and passwords set in the live session disappear on
-reboot. It does not modify disks unless you explicitly run installation tools.
+reboot. It does not partition disks or install automatically.
 
 SDDM logs into the desktop as `kwak`. NixOS's installer profile also provides
 the `nixos` console account and `root`. These live accounts have empty passwords
