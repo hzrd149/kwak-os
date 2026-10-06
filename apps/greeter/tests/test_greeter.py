@@ -424,6 +424,18 @@ class SwitchGreeterTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("escape")
             await self.wait_for(pilot, self.closed)
 
+    async def test_closes_once_switched_away_from(self):
+        self.userd.swipes.put({"id": "c1", "format": "SKC2", "password": "required"})
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.wait_for(pilot, lambda: pilot.app.page == "card")
+            # Just started: being off screen is the VT switch still happening.
+            pilot.app.post_message(greeter.CardPolled({"on_screen": False}))
+            await pilot.pause()
+            self.assertFalse(self.closed())
+            pilot.app.started -= 20
+            pilot.app.post_message(greeter.CardPolled({"on_screen": False}))
+            await self.wait_for(pilot, self.closed)
+
     async def test_switching_to_a_signed_in_account_closes_it(self):
         self.userd.switched = True
         self.userd.swipes.put({"id": "c1", "format": "SKC2", "password": "required"})

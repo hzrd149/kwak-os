@@ -32,6 +32,7 @@ import sys
 import threading
 import time
 import unicodedata
+import urllib.parse
 import urllib.request
 from urllib.parse import urlparse
 
@@ -335,6 +336,11 @@ class Nak:
         if len(events) != 1 or events[0].get("kind") != kind:
             raise UserError("nak did not return the published event.")
         return events[0]
+
+
+def bunker_signer(uri):
+    """The remote signer's pubkey in a bunker:// URI."""
+    return urllib.parse.urlsplit(uri.strip()).netloc.lower()
 
 
 def log(message):
@@ -724,9 +730,10 @@ class UserManager:
         """A swipe from kwak-cards.
 
         At a sign-in screen, the greeter on screen gets it. During a session, the
-        session is locked and a switch greeter opens on a new VT to handle it; an
-        SKC1 card of an account that is already signed in switches straight back
-        to that account's session instead.
+        session is locked and a switch greeter opens on a new VT to handle it. A
+        card of an account that is already signed in (an SKC1 card's key, or an
+        SKC2 or SKC3 card that signed in to it before) unlocks and switches
+        straight to that account's session instead, from anywhere.
 
         The secret stays here under an opaque id. The greeter only gets a summary
         and signs in with ``card_login``.
@@ -736,6 +743,16 @@ class UserManager:
             log("card swipe ignored: no session on screen")
             return {"delivered": False}
         summary, secret = self._card_summary(event)
+        if summary.get("known"):
+            # Wherever the swipe happens, an account that is already signed in is
+            # unlocked and switched to.
+            session = self.sessions.of_user(summary["username"])
+            if session is not None:
+                log(f"card swipe: switching from session {active['id']} to {session['id']}")
+                if active["class"] == "user" and session["id"] != active["id"]:
+                    self._lock(active)
+                self._switch_to(session)
+                return {"delivered": True}
         if active["class"] == "greeter":
             log(f"card swipe ({summary.get('format') or 'unreadable'}) for the sign-in "
                 f"screen, session {active['id']}")
@@ -744,14 +761,6 @@ class UserManager:
         if active["class"] != "user" or "error" in summary:
             log(f"card swipe ignored in {active['class']} session {active['id']}")
             return {"delivered": False}
-        if summary.get("known"):
-            session = self.sessions.of_user(summary["username"])
-            if session is not None:
-                log(f"card swipe: switching from session {active['id']} to {session['id']}")
-                if session["id"] != active["id"]:
-                    self._lock(active)
-                self._switch_to(session)
-                return {"delivered": True}
         log(f"card swipe: locking session {active['id']} and opening a switch greeter")
         self._store_swipe(summary, secret)
         self._lock(active)
@@ -793,18 +802,53 @@ class UserManager:
                 uri, client_key = event["bunker"].strip(), event["client_key"]
                 if not uri.startswith("bunker://") or not HEX_KEY.match(client_key):
                     raise UserError("Not a bunker connection.")
-                # Whose card it is is only known once the signer answers.
-                return ({"id": card_id, "format": "SKC3", "password": "none", "signer": True},
-                        {"format": "SKC3", "bunker": uri, "client_key": client_key})
+                secret = {"format": "SKC3", "bunker": uri, "client_key": client_key}
+                summary = {"id": card_id, "format": "SKC3", "password": "none", "signer": True}
+                return self._recognise(summary, secret), secret
             if event.get("format") == "SKC2":
-                ncryptsec = event["ncryptsec"].strip()
+                ncryptsec = event["ncryptsec"].strip().lower()
                 if not ncryptsec.startswith("ncryptsec1"):
                     raise UserError("Not an ncryptsec.")
-                return ({"id": card_id, "format": "SKC2", "password": "required"},
-                        {"format": "SKC2", "ncryptsec": ncryptsec})
+                secret = {"format": "SKC2", "ncryptsec": ncryptsec}
+                summary = {"id": card_id, "format": "SKC2", "password": "required"}
+                return self._recognise(summary, secret), secret
         except (UserError, KeyError, AttributeError):
             pass
         return {"error": "card_format"}, None
+
+    def _recognise(self, summary, secret):
+        """Name the saved account an SKC2 or SKC3 card signed in to before.
+
+        Their keys are encrypted or remote, so the card is matched against what
+        was stored: the same ncryptsec, or the same signer and client key.
+        """
+        owner = self._card_owner(secret)
+        if owner is not None:
+            username, entry = owner
+            summary.update(known=True, username=username,
+                           name=entry.get("name") or username)
+        return summary
+
+    def _card_owner(self, secret):
+        with self.registry() as data:
+            saved = [(name, dict(entry)) for name, entry in data.items()
+                     if not entry.get("temporary")]
+        for username, entry in saved:
+            keys = self.key_dir(username)
+            try:
+                material = json.loads((keys / "key.json").read_text())
+                if secret["format"] == "SKC2" and entry["method"] == "ncryptsec":
+                    if (bech32_decode(material["ncryptsec"])
+                            == bech32_decode(secret["ncryptsec"])):
+                        return username, entry
+                elif secret["format"] == "SKC3" and entry["method"] == "bunker":
+                    client_key = (keys / "nak" / "client-key").read_text().strip()
+                    if (bunker_signer(material["bunker"]) == bunker_signer(secret["bunker"])
+                            and client_key == secret["client_key"]):
+                        return username, entry
+            except (OSError, ValueError, KeyError, UserError):
+                continue
+        return None
 
     def wait_card(self, after=None, wait=30, pid=None):
         """Wait for a swipe newer than ``after``; also says if a reader is plugged in.
@@ -821,12 +865,14 @@ class UserManager:
             if card is not None and not self._fresh(card):
                 card = None
             seq = self.card_seq
-        if pid is not None and not self._on_screen(pid):
+        on_screen = pid is None or self._on_screen(pid)
+        if not on_screen:
             card = None
         elif card is not None:
             self.switch_started = None
+        # A switch greeter that is no longer on screen closes itself.
         return {"reader": card_reader_present(self.config["hidraw"]), "card": card,
-                "seq": seq}
+                "seq": seq, "on_screen": on_screen}
 
     def card_login(self, card, password=None):
         """Sign in with a swiped card, like a pasted nsec or ncryptsec."""

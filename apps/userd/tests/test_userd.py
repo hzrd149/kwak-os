@@ -779,6 +779,52 @@ class SwitchTests(ManagerCase):
                                              ("unlock", "c5")])
         self.assertEqual(self.started(), [])
 
+    def test_skc2_card_of_a_signed_in_account_switches_back(self):
+        ncryptsec = userd.ncryptsec_encrypt("11" * 32, "hunter2", log_n=10)
+        self.manager.login_ncryptsec(ncryptsec, "hunter2")
+        self.sessions.add("c5", USER)
+        # The same card, as kwak-cards encodes it (lowercase bech32 either way).
+        self.manager.card_swipe({"format": "SKC2", "ncryptsec": ncryptsec.upper()})
+        self.assertEqual(self.sessions.log, [("lock", "c3"), ("activate", "c5"),
+                                             ("unlock", "c5")])
+        self.assertEqual(self.started(), [])
+
+    def test_other_skc2_card_opens_the_switch_greeter(self):
+        self.manager.login_ncryptsec(userd.ncryptsec_encrypt("11" * 32, "hunter2", log_n=10),
+                                     "hunter2")
+        self.sessions.add("c5", USER)
+        # Same key, but a different encryption: not the card that signed in.
+        other = userd.ncryptsec_encrypt("11" * 32, "hunter2", log_n=10)
+        self.manager.card_swipe({"format": "SKC2", "ncryptsec": other})
+        self.assertEqual(len(self.started()), 1)
+        self.assertNotIn(("activate", "c5"), self.sessions.log)
+
+    def test_skc3_card_of_a_signed_in_account_switches_back(self):
+        uri = "bunker://" + "ab" * 32 + "?relay=wss%3A%2F%2Fr"
+        self.manager.login_bunker(uri, client_key="22" * 32)
+        self.sessions.add("c5", USER)
+        self.manager.card_swipe({"format": "SKC3", "bunker": uri, "client_key": "33" * 32})
+        self.assertEqual(len(self.started()), 1, "a different client key is another card")
+        self.clock.now += 20
+        self.manager.card_swipe({"format": "SKC3", "bunker": "bunker://" + "AB" * 32,
+                                 "client_key": "22" * 32})
+        self.assertEqual(self.sessions.log[-2:], [("activate", "c5"), ("unlock", "c5")])
+        self.assertEqual(len(self.started()), 1)
+
+    def test_swipe_at_a_sign_in_screen_switches_to_an_open_account(self):
+        self.manager.login_nsec("11" * 32, "hunter2")
+        self.sessions.add("c5", USER)
+        self.sessions.active_id = "c1"
+        self.manager.card_swipe({"format": "SKC1", "secret_key": "11" * 32})
+        self.assertEqual(self.sessions.log, [("activate", "c5"), ("unlock", "c5")])
+        self.assertIsNone(self.manager.wait_card(after=0, wait=0, pid=100)["card"])
+
+    def test_greeters_are_told_whether_they_are_on_screen(self):
+        self.sessions.add("c9", "greeter", "greeter", pid=500)
+        self.assertFalse(self.manager.wait_card(wait=0, pid=500)["on_screen"])
+        self.sessions.active_id = "c9"
+        self.assertTrue(self.manager.wait_card(wait=0, pid=500)["on_screen"])
+
     def test_guest_session_is_not_locked(self):
         self.manager.login_nsec("11" * 32)
         self.sessions.add("c5", USER)

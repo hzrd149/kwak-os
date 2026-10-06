@@ -70,12 +70,18 @@ id, and signs in with `card_login`.
 ## Switching accounts
 
 Several people can be signed in at once, each in their own session on its own
-virtual terminal. Swiping a card during a session switches to that card's account:
+virtual terminal. Swiping a card anywhere (in a session, on the lock screen, or at a
+sign-in screen) switches to that card's account:
 
 | The card's account | What happens |
 | --- | --- |
-| Already signed in (an SKC1 card) | The current session locks, and the screen switches to that account's session and unlocks it. Swiping your own card unlocks your locked session. |
-| Anything else | The current session locks, and a **Switch account** sign-in screen opens on the next free virtual terminal to handle the swipe (asking for a password, or waiting for the signer). The new session then runs there. Esc on that screen goes back to the locked session. |
+| Already signed in | The current session locks, and the screen switches to that account's session and unlocks it, with no password or signer. Swiping your own card unlocks your locked session. |
+| Anything else | The current session locks, and a **Switch account** sign-in screen opens on the next free virtual terminal to handle the swipe, as at the normal sign-in screen: it asks for an SKC2 card's password, or connects to an SKC3 card's signer, creating the user if needed. The new session then runs there. Esc on that screen goes back to the locked session. |
+
+A card is recognised as an account's from its key (SKC1), from the ncryptsec stored
+when it first signed in (SKC2: the same card, not just the same key), or from the
+stored signer and client key (SKC3). So once an SKC2 card has signed in, the card
+alone reopens that account's running session; keep it as safe as an SKC1 card.
 
 Signing in to an account that already has a session, from any sign-in screen,
 switches to that session instead of starting a second one.

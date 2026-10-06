@@ -9,6 +9,7 @@ import socket
 import struct
 import sys
 import threading
+import time
 
 from rich.text import Text
 from textual import work
@@ -174,6 +175,7 @@ class GreeterApp(App):
         self.waiting_back = "people"
         self.card = None
         self.stopping = threading.Event()
+        self.started = time.monotonic()
 
     def compose(self):
         with VerticalScroll(id="panel"):
@@ -403,6 +405,11 @@ class GreeterApp(App):
                 # Restarted after its session ended, with no swipe to handle.
                 self.close_switch()
                 return
+            if (self.switch and message.result.get("on_screen") is False
+                    and time.monotonic() - self.started > 15 and not self.busy):
+                # Another swipe switched away from this VT; nobody is using it.
+                self.close_switch()
+                return
             self.card_polled(message.result)
         except NoMatches:  # The app is closing and its widgets are gone.
             pass
@@ -438,7 +445,7 @@ class GreeterApp(App):
         if card.get("signer"):
             # An SKC3 card: its bunker is already paired, so just wait for it.
             self.selected = None
-            self.wait_for_signer("Bunker card",
+            self.wait_for_signer(card.get("name") or "Bunker card",
                                  lambda: self.request("card_login", card=card["id"]),
                                  back="people")
             return
@@ -449,7 +456,8 @@ class GreeterApp(App):
                      "Starting session…")
             return
         new = card["password"] == "optional"
-        self.query_one("#card-name", Static).update("New card" if new else "Encrypted card")
+        self.query_one("#card-name", Static).update(
+            "New card" if new else card.get("name") or "Encrypted card")
         self.query_one("#card-hint", Static).update(
             "With a password, this card's key is kept on this computer as an ncryptsec. "
             "Without one, you sign in as a guest that is deleted, with all its files, "
