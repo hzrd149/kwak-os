@@ -7,20 +7,27 @@ ISO logs straight into `kwak` instead (`kwak.nostrUsers.enable = false`).
 
 ## Signing in
 
-The sign-in screen (`kwak-greeter`, running in `cage` under greetd) lists the saved
-identities and offers three more options:
+The sign-in screen (`kwak-greeter`) is a terminal app in a full-screen kitty
+window, run in `cage` by greetd. Use the mouse, or the arrow keys, Tab, Enter, and
+Esc to go back. It lists every account on the computer. Choosing one signs in to it:
 
-| Sign in with | What happens | Next time |
-| --- | --- | --- |
-| **nsec + password** | The user is created and the key is kept, encrypted as an ncryptsec (NIP-49) with that password. | Choose your name and enter the password. |
-| **nsec, no password** | A **temporary** user is created and nothing is saved. Logging out deletes the user and all of their files. | Paste the nsec again. |
-| **ncryptsec + its password** | The key is decrypted to check the password, then the user is created and the ncryptsec is kept as given. | Choose your name and enter the password. |
-| **bunker:// URI** | The remote signer must sign a fresh challenge. The user is created for the pubkey that signed it, and the URI is kept. | Choose your name and approve the request in your signer. |
-| **Create a new identity** | A new key is generated and shown once for backup. With a password it is kept as an ncryptsec; without one the user is temporary. | As for nsec. |
-| **Local account…** | A normal username and password, such as the `kwak` administrator. | |
+| Account | Choosing it |
+| --- | --- |
+| **Password** (an ncryptsec) | Asks for the password and decrypts the key. |
+| **Remote signer** (a bunker) | Shows a loading screen until the signer approves the login. Cancel goes back. |
+| **Guest** (an nsec without a password) | Starts the session straight away. Guests are only listed while they exist, until they log out. |
+
+Below the list, **Sign in with another account…** offers:
+
+| Option | What happens |
+| --- | --- |
+| **New account** | Asks for an optional password, then generates a new key and starts the session. With a password the key is kept as an ncryptsec; without one the account is a guest, deleted with its key at logout. |
+| **Existing account** | Paste an nsec or ncryptsec. An nsec with a password is kept as an ncryptsec (NIP-49) protected by that password; an nsec without one signs in as a guest. An ncryptsec is checked with its password and kept as given. |
+| **Remote signer** | Paste a bunker:// URI. The signer must sign a fresh challenge while the loading screen shows. The user is created for the pubkey that signed it, and the URI is kept. |
+| **Linux user** | A normal username and password, such as the `kwak` administrator. |
 
 The rules for keys that are already on the computer:
-- **Adding a password** to a temporary identity, by signing in with the nsec and a password, makes it saved.
+- **Adding a password** to a guest, by signing in with the nsec and a password, makes it saved.
 - **Signing in with the nsec and no password** to a saved identity keeps it saved and leaves its stored key alone.
 - **Signing in with the nsec and a new password** replaces the old password.
 
@@ -93,7 +100,7 @@ Each app is its own flake under `apps/`:
 
 ```sh
 nix build ./apps/userd     # runs the user manager's unit tests
-nix build ./apps/greeter   # runs the greetd protocol tests
+nix build ./apps/greeter   # runs the greetd protocol and headless UI tests
 nix develop ./apps/userd   # Python with pynacl, plus nak
 ```
 

@@ -2,16 +2,14 @@
   lib,
   stdenvNoCC,
   python3,
-  gtk3,
-  gobject-introspection,
-  wrapGAppsHook3,
+  kitty,
   makeWrapper,
   makeDesktopItem,
   # null uses the hyprctl of the running desktop from PATH.
   hyprland ? null,
 }:
 let
-  python = python3.withPackages (ps: [ ps.pygobject3 ]);
+  python = python3.withPackages (ps: [ ps.textual ]);
   desktopItem = makeDesktopItem {
     name = "org.kwak.Settings";
     desktopName = "Settings";
@@ -22,7 +20,6 @@ let
       "Settings"
       "DesktopSettings"
     ];
-    startupNotify = true;
   };
 in
 stdenvNoCC.mkDerivation {
@@ -30,13 +27,8 @@ stdenvNoCC.mkDerivation {
   version = "0.1.0";
   src = ./.;
 
-  nativeBuildInputs = [
-    makeWrapper
-    wrapGAppsHook3
-    gobject-introspection
-  ];
-  buildInputs = [ gtk3 ];
-  nativeCheckInputs = [ python3 ];
+  nativeBuildInputs = [ makeWrapper ];
+  nativeCheckInputs = [ python ];
   dontBuild = true;
   doCheck = true;
 
@@ -49,12 +41,21 @@ stdenvNoCC.mkDerivation {
   installPhase = ''
     runHook preInstall
     install -Dm644 settings.py $out/share/kwak/settings.py
-    install -Dm644 settings.css $out/share/kwak/settings.css
-    mkdir -p $out/bin $out/share/applications
-    cp ${desktopItem}/share/applications/* $out/share/applications/
-    makeWrapper ${python}/bin/python3 $out/bin/kwak-settings \
+    install -Dm644 kitty.conf $out/share/kwak/settings-kitty.conf
+    makeWrapper ${python}/bin/python3 $out/libexec/kwak-settings-tui \
       --add-flags "$out/share/kwak/settings.py" \
       ${lib.optionalString (hyprland != null) "--prefix PATH : ${lib.makeBinPath [ hyprland ]}"}
+    # In a terminal, run there; otherwise open a borderless kitty window.
+    mkdir -p $out/bin
+    cat > $out/bin/kwak-settings <<SH
+    #!${stdenvNoCC.shell}
+    if [ -t 0 ] && [ -t 1 ]; then exec $out/libexec/kwak-settings-tui "\$@"; fi
+    exec ${lib.getExe kitty} --config $out/share/kwak/settings-kitty.conf \\
+      --class org.kwak.Settings --title Settings $out/libexec/kwak-settings-tui "\$@"
+    SH
+    chmod +x $out/bin/kwak-settings
+    mkdir -p $out/share/applications
+    cp ${desktopItem}/share/applications/* $out/share/applications/
     runHook postInstall
   '';
 

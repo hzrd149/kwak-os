@@ -35,18 +35,23 @@ hl.config({
     misc = { disable_hyprland_logo = true, disable_splash_rendering = true },
 })
 
+-- kwakOS's own terminal apps (Settings, Sign Out) are small floating windows.
 hl.window_rule({
-    name = "kwak-settings",
-    match = { class = "org.kwak.Settings" },
+    name = "kwak-apps",
+    match = { class = "org\\.kwak\\..+" },
     float = true,
     center = true,
 })
+
+local function is_kwak_app(window)
+    return (window.class or ""):find("^org%.kwak%.") ~= nil
+end
 
 -- Each main window gets an empty workspace. Floating dialogs stay with the app.
 local separate_windows = hl.window_rule({
     name = "one-window-per-workspace",
     enabled = mode == "kwassik",
-    match = { float = false, modal = false, class = "negative:org.kwak.Settings" },
+    match = { float = false, modal = false, class = "negative:org\\.kwak\\..+" },
     workspace = "empty",
 })
 
@@ -57,7 +62,7 @@ local function check_single_windows()
     local counts, floating = {}, {}
     for _, window in ipairs(hl.get_windows()) do
         local workspace = window.workspace
-        if workspace and not workspace.special and window.class ~= "org.kwak.Settings" then
+        if workspace and not workspace.special and not is_kwak_app(window) then
             if window.floating then
                 floating[workspace.id] = true
             else
@@ -76,7 +81,7 @@ local function restore_single_windows()
     local occupied = {}
     for _, window in ipairs(hl.get_windows({ floating = false })) do
         local workspace = window.workspace
-        if workspace and not workspace.special and window.class ~= "org.kwak.Settings" then
+        if workspace and not workspace.special and not is_kwak_app(window) then
             if occupied[workspace.id] then
                 hl.dispatch(hl.dsp.window.move({ window = window, workspace = "empty", follow = false }))
             else

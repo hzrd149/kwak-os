@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
-"""The desktop's single window-layout preference and GTK settings window."""
+"""The desktop's window tiling mode and the terminal Settings app."""
 
+import asyncio
 import os
 from pathlib import Path
 import subprocess
 import tempfile
-import threading
+
+from rich.text import Text
+from textual import work
+from textual.app import App
+from textual.binding import Binding
+from textual.containers import Horizontal, VerticalScroll
+from textual.theme import Theme
+from textual.widgets import Button, Footer, OptionList, Static
+from textual.widgets.option_list import Option
 
 
 MODES = {
@@ -117,195 +126,127 @@ class ModeController:
         return mode
 
 
-def main():
-    import gi
+THEME = Theme(
+    name="kwak",
+    primary="#33ff66",
+    secondary="#1f9940",
+    accent="#33ff66",
+    foreground="#c8ffd4",
+    background="#000000",
+    surface="#030803",
+    panel="#0a1a0d",
+    error="#ff5f5f",
+    warning="#ffcc33",
+    success="#33ff66",
+    dark=True,
+)
 
-    gi.require_version("Gtk", "3.0")
-    gi.require_version("Gdk", "3.0")
-    from gi.repository import Gdk, Gio, GLib, Gtk
 
-    GLib.set_prgname("org.kwak.Settings")
-    Gdk.set_program_class("org.kwak.Settings")
+class SettingsApp(App):
+    """Choose the window tiling mode; a mode is applied as soon as it is chosen."""
 
-    class SettingsApplication(Gtk.Application):
-        def __init__(self):
-            super().__init__(application_id="org.kwak.Settings")
-            self.controller = ModeController()
-            self.window = None
-            self.current = None
-            self.busy = False
-            self.rows = {}
+    TITLE = "Settings"
+    CSS = """
+    Screen { align: center middle; background: $background; }
+    #panel {
+        width: 100%; max-width: 72; height: auto; max-height: 100%;
+        border: heavy $primary; border-title-align: left; padding: 1 2;
+        scrollbar-size-vertical: 1;
+        background: $surface;
+    }
+    .title { text-style: bold; color: $primary; }
+    .hint { color: $foreground 70%; margin-bottom: 1; }
+    OptionList { height: auto; max-height: 100%; border: none; padding: 0; background: $surface; }
+    OptionList > .option-list--option-highlighted { background: $primary 25%; }
+    #status { margin-top: 1; color: $foreground 70%; }
+    #status.error { color: $error; }
+    #buttons { height: auto; align-horizontal: right; margin-top: 1; }
+    Button { border: none; height: 1; min-width: 10; margin-left: 2; }
+    """
+    ENABLE_COMMAND_PALETTE = False
+    BINDINGS = [Binding("escape,q", "quit", "Close")]
 
-        def do_startup(self):
-            Gtk.Application.do_startup(self)
-            close_action = Gio.SimpleAction.new("close", None)
-            close_action.connect("activate", self.close)
-            self.add_action(close_action)
-            self.set_accels_for_action("app.close", ["Escape", "<Primary>w"])
-            provider = Gtk.CssProvider()
-            provider.load_from_path(str(Path(__file__).with_suffix(".css")))
-            Gtk.StyleContext.add_provider_for_screen(
-                Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-            )
+    def __init__(self, controller=None):
+        super().__init__()
+        self.controller = controller or ModeController()
+        self.current = None
 
-        def do_activate(self):
-            if self.window is None:
-                self.build_window()
-            self.window.show_all()
-            self.window.present()
-            if not self.busy:
-                self.run_job(self.controller.current_mode, self.loaded)
+    def compose(self):
+        with VerticalScroll(id="panel") as panel:
+            panel.border_title = "SETTINGS"
+            yield Static("Window tiling mode", classes="title")
+            yield Static("Choose how your windows use the workspace.", classes="hint")
+            yield OptionList(id="modes", disabled=True)
+            yield Static("Reading desktop settings…", id="status")
+            with Horizontal(id="buttons"):
+                yield Button("Close", id="close")
+        yield Footer()
 
-        def build_window(self):
-            self.window = Gtk.ApplicationWindow(application=self, title="Settings")
-            self.window.set_icon_name("preferences-system")
-            self.window.set_default_size(560, 570)
-            self.window.set_resizable(False)
-            self.window.connect("delete-event", lambda *_: self.busy)
-            self.window.connect("destroy", lambda *_: self.quit())
-            header = Gtk.HeaderBar(title="Settings", show_close_button=True)
-            self.window.set_titlebar(header)
+    def on_mount(self):
+        self.register_theme(THEME)
+        self.theme = "kwak"
+        self.load()
 
-            content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-            content.set_border_width(24)
-            self.window.add(content)
-            title = Gtk.Label(label="Window tiling mode", xalign=0)
-            title.get_style_context().add_class("section-title")
-            content.pack_start(title, False, False, 0)
-            subtitle = Gtk.Label(label="Choose how your windows use the workspace.", xalign=0)
-            subtitle.get_style_context().add_class("description")
-            subtitle.set_margin_top(8)
-            subtitle.set_margin_bottom(22)
-            content.pack_start(subtitle, False, False, 0)
+    def show_modes(self):
+        modes = self.query_one("#modes", OptionList)
+        modes.clear_options()
+        for mode, (name, description) in MODES.items():
+            mark = "(•)" if mode == self.current else "( )"
+            prompt = Text.assemble((f"{mark} {name}", "bold"), "\n    ", (description, "dim"))
+            modes.add_option(Option(prompt, id=mode))
+        if self.current:
+            modes.highlighted = list(MODES).index(self.current)
 
-            choices = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-            group = None
-            for mode, (name, description) in MODES.items():
-                row = Gtk.RadioButton.new_from_widget(group)
-                group = row
-                row.get_style_context().add_class("mode-row")
-                labels = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-                labels.set_margin_start(12)
-                label = Gtk.Label(label=name, xalign=0)
-                label.get_style_context().add_class("mode-name")
-                labels.pack_start(label, False, False, 0)
-                detail = Gtk.Label(label=description, xalign=0)
-                detail.get_style_context().add_class("description")
-                labels.pack_start(detail, False, False, 0)
-                row.add(labels)
-                row.get_accessible().set_name(name)
-                row.get_accessible().set_description(description)
-                row.connect("toggled", self.selection_changed)
-                self.rows[mode] = row
-                choices.pack_start(row, False, False, 0)
-            content.pack_start(choices, False, False, 0)
+    def say(self, message, error=False):
+        status = self.query_one("#status", Static)
+        status.update(message)
+        status.set_class(error, "error")
 
-            self.status = Gtk.Label(label="Reading desktop settings…", xalign=0, yalign=0)
-            self.status.set_line_wrap(True)
-            self.status.set_max_width_chars(52)
-            self.status.set_margin_top(18)
-            self.status.set_margin_bottom(18)
-            self.status.get_style_context().add_class("status")
-            content.pack_start(self.status, True, True, 0)
+    @work(exclusive=True)
+    async def load(self):
+        try:
+            self.current = await asyncio.to_thread(self.controller.current_mode)
+        except SettingsError as error:
+            self.say(str(error), error=True)
+            return
+        self.show_modes()
+        modes = self.query_one("#modes", OptionList)
+        modes.disabled = False
+        modes.focus()
+        self.say("Choose a mode to apply it. Your choice is saved for next time.")
 
-            buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-            buttons.set_halign(Gtk.Align.END)
-            self.close_button = Gtk.Button.new_with_mnemonic("_Close")
-            self.close_button.connect("clicked", self.close)
-            self.apply_button = Gtk.Button.new_with_mnemonic("_Apply")
-            self.apply_button.get_style_context().add_class("apply")
-            self.apply_button.set_can_default(True)
-            self.apply_button.connect("clicked", self.apply_selection)
-            buttons.pack_start(self.close_button, False, False, 0)
-            buttons.pack_start(self.apply_button, False, False, 0)
-            content.pack_end(buttons, False, False, 0)
-            self.apply_button.grab_default()
-            self.selection_changed()
+    def on_option_list_option_selected(self, event):
+        if event.option.id != self.current:
+            self.apply(event.option.id)
 
-        def close(self, *_):
-            if not self.busy:
-                self.quit()
-
-        def selected_mode(self):
-            return next(mode for mode, row in self.rows.items() if row.get_active())
-
-        def selection_changed(self, *_):
-            for row in self.rows.values():
-                context = row.get_style_context()
-                if row.get_active():
-                    context.add_class("selected")
-                else:
-                    context.remove_class("selected")
-            if hasattr(self, "apply_button"):
-                self.apply_button.set_sensitive(
-                    not self.busy and self.current is not None
-                    and self.selected_mode() != self.current
-                )
-
-        def show_status(self, message, error=False):
-            self.status.set_text(message)
-            context = self.status.get_style_context()
-            if error:
-                context.add_class("error")
-            else:
-                context.remove_class("error")
-
-        def run_job(self, work, complete):
-            self.busy = True
-            self.close_button.set_sensitive(False)
-            for row in self.rows.values():
-                row.set_sensitive(False)
-            self.selection_changed()
-
-            def worker():
-                try:
-                    value, error = work(), None
-                except SettingsError as failure:
-                    value, error = None, str(failure)
-                GLib.idle_add(finished, value, error)
-
-            def finished(value, error):
-                self.busy = False
-                self.close_button.set_sensitive(True)
-                for row in self.rows.values():
-                    row.set_sensitive(True)
-                complete(value, error)
-                self.selection_changed()
-                return False
-
-            threading.Thread(target=worker, daemon=True).start()
-
-        def loaded(self, mode, error):
-            self.current = mode
-            if error:
-                self.show_status(error, error=True)
-            else:
-                self.rows[mode].set_active(True)
-                self.rows[mode].grab_focus()
-                self.show_status("Select a mode, then Apply. Your choice is saved for next time.")
-
-        def apply_selection(self, *_):
-            mode = self.selected_mode()
-            self.show_status("Applying window mode…")
-            self.run_job(lambda: self.controller.apply(mode), self.applied)
-
-        def applied(self, mode, error):
-            if error:
-                # A failed rollback can leave the compositor in an unknown mode.
+    @work(exclusive=True)
+    async def apply(self, mode):
+        modes = self.query_one("#modes", OptionList)
+        modes.disabled = True
+        self.say(f"Applying {MODES[mode][0]}…")
+        try:
+            self.current = await asyncio.to_thread(self.controller.apply, mode)
+            self.say(f"{MODES[mode][0]} is active. Your choice has been saved.")
+        except SettingsError as error:
+            self.say(str(error), error=True)
+            # A failed rollback can leave the desktop in an unknown mode.
+            try:
+                self.current = await asyncio.to_thread(self.controller.current_mode)
+            except SettingsError as refresh_error:
                 self.current = None
-                self.show_status(error, error=True)
+                self.say(f"{error} {refresh_error}", error=True)
+        self.show_modes()
+        modes.disabled = False
+        modes.focus()
 
-                def refreshed(actual, refresh_error):
-                    self.current = actual
-                    if refresh_error:
-                        self.show_status(f"{error} {refresh_error}", error=True)
+    def on_button_pressed(self, event):
+        if event.button.id == "close":
+            self.exit()
 
-                self.run_job(self.controller.current_mode, refreshed)
-            else:
-                self.current = mode
-                self.show_status(f"{MODES[mode][0]} is active. Your choice has been saved.")
 
-    return SettingsApplication().run(None)
+def main():
+    SettingsApp().run()
+    return 0
 
 
 if __name__ == "__main__":

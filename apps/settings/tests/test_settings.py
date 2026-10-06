@@ -1,4 +1,4 @@
-"""Controller tests run without GTK or a live desktop session."""
+"""Controller and terminal UI tests, run headless without a live desktop session."""
 
 import importlib.util
 from pathlib import Path
@@ -139,6 +139,36 @@ class ModeControllerTests(unittest.TestCase):
         self.controller.run = lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError("hyprctl"))
         with self.assertRaisesRegex(settings.SettingsError, "Cannot reach the desktop"):
             self.controller.current_mode()
+
+
+class SettingsAppTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.desktop = Desktop("master")
+        controller = settings.ModeController(
+            Path(self.directory.name) / "tiling-mode", run=self.desktop
+        )
+        self.app = settings.SettingsApp(controller)
+
+    async def test_choosing_a_mode_applies_it(self):
+        async with self.app.run_test(size=(60, 20)) as pilot:
+            await pilot.app.workers.wait_for_complete()
+            modes = pilot.app.query_one("#modes")
+            self.assertEqual(modes.highlighted, list(settings.MODES).index("master"))
+            await pilot.press("down", "enter")
+            await pilot.app.workers.wait_for_complete()
+            await pilot.pause()
+            self.assertEqual(self.desktop.mode, "dwindle")
+            self.assertIn("Dwindle is active", str(pilot.app.query_one("#status").render()))
+
+    async def test_unavailable_desktop_is_shown(self):
+        self.desktop.replies["return kwak_settings.mode"] = "nil"
+        async with self.app.run_test(size=(40, 12)) as pilot:
+            await pilot.app.workers.wait_for_complete()
+            await pilot.pause()
+            self.assertTrue(pilot.app.query_one("#modes").disabled)
+            self.assertTrue(pilot.app.query_one("#status").has_class("error"))
 
 
 if __name__ == "__main__":

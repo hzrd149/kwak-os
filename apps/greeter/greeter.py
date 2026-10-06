@@ -1,14 +1,23 @@
 #!/usr/bin/env python3
-"""greetd greeter that signs in with Nostr identities, plus the sign-out dialog."""
+"""Terminal greetd greeter for Nostr identities, plus the sign-out dialog."""
 
+import asyncio
 import json
 import os
-from pathlib import Path
 import shlex
 import socket
 import struct
 import sys
-import threading
+
+from rich.text import Text
+from textual import work
+from textual.app import App
+from textual.binding import Binding
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.theme import Theme
+from textual.widgets import (Button, ContentSwitcher, Footer, Input, LoadingIndicator,
+                             OptionList, Static)
+from textual.widgets.option_list import Option
 
 import client
 
@@ -68,375 +77,425 @@ def session_command():
     return shlex.split(os.environ.get("KWAK_SESSION", "uwsm start hyprland-uwsm.desktop"))
 
 
-def main_greeter():
-    import gi
+THEME = Theme(
+    name="kwak",
+    primary="#33ff66",
+    secondary="#1f9940",
+    accent="#33ff66",
+    foreground="#c8ffd4",
+    background="#000000",
+    surface="#030803",
+    panel="#0a1a0d",
+    error="#ff5f5f",
+    warning="#ffcc33",
+    success="#33ff66",
+    dark=True,
+)
 
-    gi.require_version("Gtk", "3.0")
-    gi.require_version("Gdk", "3.0")
-    gi.require_version("GdkPixbuf", "2.0")
-    from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
+CSS = """
+Screen { align: center middle; background: $background; }
+#panel {
+    width: 100%; max-width: 64; height: auto; max-height: 100%;
+    border: heavy $primary; border-title-align: left; padding: 1 2;
+    scrollbar-size-vertical: 1;
+    background: $surface;
+}
+ContentSwitcher, ContentSwitcher > Vertical { height: auto; }
+.title { text-style: bold; color: $primary; }
+.hint { color: $foreground 70%; margin-bottom: 1; }
+Input { margin-bottom: 1; border: tall $primary 40%; background: $background; }
+Input:focus { border: tall $primary; }
+OptionList { height: auto; border: none; padding: 0; background: $surface; }
+OptionList > .option-list--option-highlighted { background: $primary 25%; }
+LoadingIndicator { height: 3; color: $primary; }
+.buttons { height: auto; align-horizontal: right; }
+Button { border: none; height: 1; min-width: 10; margin-left: 2; }
+#status { margin-top: 1; color: $foreground 70%; display: none; }
+#status.shown { display: block; }
+#status.error { color: $error; }
+"""
 
-    greetd = Greetd()
 
-    class Greeter(Gtk.Window):
-        def __init__(self):
-            super().__init__(title="Sign in")
-            self.busy = False
-            self.selected = None
-            self.pending = None
-            self.connect("destroy", Gtk.main_quit)
-            self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
-            frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-            frame.set_halign(Gtk.Align.CENTER)
-            frame.set_valign(Gtk.Align.CENTER)
-            frame.set_size_request(460, -1)
-            frame.get_style_context().add_class("panel")
-            frame.pack_start(self.stack, False, False, 0)
-            self.status = Gtk.Label(xalign=0, wrap=True, max_width_chars=52)
-            self.status.get_style_context().add_class("status")
-            self.status.set_margin_top(16)
-            frame.pack_start(self.status, False, False, 0)
-            self.add(frame)
-            self.build_people()
-            self.build_unlock()
-            self.build_key()
-            self.build_create()
-            self.build_backup()
-            self.build_local()
-            self.fullscreen()
-            self.refresh()
+def buttons(primary=None, primary_id=None, back="Back", variant="primary"):
+    """A right-aligned row: a Back (or Cancel) button and an optional main button."""
+    row = [Button(back, classes="back")]
+    if primary:
+        row.append(Button(primary, id=primary_id, variant=variant))
+    return Horizontal(*row, classes="buttons")
 
-        # Layout helpers --------------------------------------------------
 
-        def page(self, name, title, subtitle):
-            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-            heading = Gtk.Label(label=title, xalign=0)
-            heading.get_style_context().add_class("section-title")
-            box.pack_start(heading, False, False, 0)
-            if subtitle:
-                detail = Gtk.Label(label=subtitle, xalign=0, wrap=True, max_width_chars=52)
-                detail.get_style_context().add_class("description")
-                box.pack_start(detail, False, False, 0)
-            self.stack.add_named(box, name)
-            return box, heading
+class GreeterApp(App):
+    """Sign-in screen: accounts on this computer, then other ways to sign in."""
 
-        @staticmethod
-        def entry(placeholder, secret=False):
-            field = Gtk.Entry(placeholder_text=placeholder, visibility=not secret)
-            field.set_activates_default(True)
-            return field
+    TITLES = {
+        "people": "KWAKOS", "unlock": "UNLOCK", "add": "SIGN IN", "create": "NEW ACCOUNT",
+        "key": "EXISTING ACCOUNT", "bunker": "REMOTE SIGNER", "local": "LINUX USER",
+        "waiting": "REMOTE SIGNER",
+    }
+    BACK = {"unlock": "people", "add": "people", "create": "add", "key": "add",
+            "bunker": "add", "local": "add"}
+    ADD = (
+        ("create", "New account", "Generate a new Nostr key on this computer."),
+        ("key", "Existing account", "Sign in with your nsec or ncryptsec."),
+        ("bunker", "Remote signer", "Sign in with a bunker:// URI and approve it in your signer."),
+        ("local", "Linux user", "Sign in to a local account, such as the kwak administrator."),
+    )
+    ADD_FOCUS = {"create": "create-password", "key": "key-text", "bunker": "bunker-uri",
+                 "local": "local-user"}
+    CSS = CSS
+    ENABLE_COMMAND_PALETTE = False
+    BINDINGS = [Binding("escape", "back", "Back")]
 
-        def buttons(self, box, primary, action, back=True):
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-            row.set_halign(Gtk.Align.END)
-            row.set_margin_top(8)
-            if back:
-                button = Gtk.Button.new_with_mnemonic("_Back")
-                button.connect("clicked", lambda *_: self.show("people"))
-                row.pack_start(button, False, False, 0)
-            go = Gtk.Button.new_with_mnemonic(primary)
-            go.get_style_context().add_class("apply")
-            go.set_can_default(True)
-            go.connect("clicked", lambda *_: action())
-            row.pack_start(go, False, False, 0)
-            box.pack_start(row, False, False, 0)
-            return go
+    def __init__(self, request=client.request, greetd=None, command=None):
+        super().__init__()
+        self.request = request
+        self.greetd = greetd or Greetd()
+        self.command = command or session_command()
+        self.busy = False
+        self.selected = None
+        self.people = []
+        self.waiting_back = "people"
 
-        def show(self, name, focus=None):
-            self.stack.set_visible_child_name(name)
-            for widget in self.defaults.get(name, []):
-                widget.grab_default()
-            if focus is not None:
-                focus.grab_focus()
-            self.say("")
+    def compose(self):
+        with VerticalScroll(id="panel"):
+            with ContentSwitcher(initial="people", id="pages"):
+                with Vertical(id="people"):
+                    yield Static("Choose who is signing in.", classes="hint")
+                    yield OptionList(id="people-list")
+                with Vertical(id="unlock"):
+                    yield Static(id="unlock-name", classes="title")
+                    yield Static("Enter this account's password to decrypt its key.",
+                                 classes="hint")
+                    yield Input(placeholder="Password", password=True, id="unlock-password")
+                    yield buttons("Sign in", "unlock-go")
+                with Vertical(id="add"):
+                    yield Static("Choose how to sign in.", classes="hint")
+                    yield OptionList(*(
+                        Option(Text.assemble((f"> {name}", "bold"), "\n  ", (detail, "dim")),
+                               id=page)
+                        for page, name, detail in self.ADD
+                    ), id="add-list")
+                    yield buttons()
+                with Vertical(id="create"):
+                    yield Static(
+                        "With a password, your new key is kept on this computer as an "
+                        "ncryptsec. Without one, you sign in as a guest that is deleted, "
+                        "with its key and all its files, when you log out.", classes="hint")
+                    yield Input(placeholder="Password (optional)", password=True,
+                                id="create-password")
+                    yield Input(placeholder="Repeat password", password=True,
+                                id="create-confirm")
+                    yield buttons("Create", "create-go")
+                with Vertical(id="key"):
+                    yield Static("Paste your nsec or ncryptsec.", classes="hint")
+                    yield Input(placeholder="nsec1… or ncryptsec1…", password=True, id="key-text")
+                    yield Input(password=True, id="key-password")
+                    yield Static(id="key-hint", classes="hint")
+                    yield buttons("Sign in", "key-go")
+                with Vertical(id="bunker"):
+                    yield Static("Paste the bunker:// URI from your signer. It is kept on "
+                                 "this computer until you sign out of it.", classes="hint")
+                    yield Input(placeholder="bunker://…", password=True, id="bunker-uri")
+                    yield buttons("Connect", "bunker-go")
+                with Vertical(id="local"):
+                    yield Static("Sign in with a local account.", classes="hint")
+                    yield Input(placeholder="Username", id="local-user")
+                    yield Input(placeholder="Password", password=True, id="local-password")
+                    yield buttons("Sign in", "local-go")
+                with Vertical(id="waiting"):
+                    yield Static(id="waiting-name", classes="title")
+                    yield LoadingIndicator()
+                    yield Static("Connecting to your signer. Approve the login request there.",
+                                 classes="hint")
+                    yield buttons(back="Cancel")
+            yield Static(id="status")
+        yield Footer()
 
-        def say(self, message, error=False):
-            self.status.set_text(message)
-            context = self.status.get_style_context()
-            (context.add_class if error else context.remove_class)("error")
+    def on_mount(self):
+        self.register_theme(THEME)
+        self.theme = "kwak"
+        self.key_changed()
+        self.show("people")
+        self.refresh_people()
 
-        def job(self, work, done, message):
-            if self.busy:
+    # Helpers -----------------------------------------------------------------
+
+    @property
+    def page(self):
+        return self.query_one("#pages", ContentSwitcher).current
+
+    def field(self, name):
+        return self.query_one(f"#{name}", Input)
+
+    def check_action(self, action, parameters):
+        if action == "back":
+            return self.page in self.BACK or self.page == "waiting"
+        return True
+
+    def show(self, page, focus=None):
+        self.query_one("#pages", ContentSwitcher).current = page
+        self.refresh_bindings()
+        self.query_one("#panel").border_title = self.TITLES[page]
+        self.say("")
+        if focus:
+            self.query_one(focus).focus()
+        else:
+            # Otherwise the page's first control: its list, field, or button.
+            first = self.query_one(f"#{page}").query("OptionList, Input, Button").first()
+            first.focus()
+
+    def say(self, message, error=False):
+        status = self.query_one("#status", Static)
+        status.update(message)
+        status.set_class(error, "error")
+        status.set_class(bool(message), "shown")
+
+    def job(self, work, done, message, failed=None):
+        """Run blocking ``work`` in a thread, then ``done(result)``; on error, ``failed()``."""
+        if self.busy:
+            return
+        self.busy = True
+        pages = self.query_one("#pages")
+        # Disabling the page drops keyboard focus, so it is put back afterwards.
+        focused = self.focused
+        # The loading page stays usable so that its Cancel button works.
+        pages.disabled = self.page != "waiting"
+        self.say(message)
+
+        def finish():
+            self.busy = pages.disabled = False
+            if focused is not None and self.focused is None:
+                focused.focus()
+
+        async def run():
+            try:
+                value = await asyncio.to_thread(work)
+            except (client.UserError, OSError) as error:
+                finish()
+                if failed:
+                    failed()
+                self.say(str(error), error=True)
                 return
-            self.busy = True
-            self.stack.set_sensitive(False)
-            self.say(message)
+            finish()
+            done(value)
 
-            def worker():
-                try:
-                    value, error = work(), None
-                except client.UserError as failure:
-                    value, error = None, str(failure)
-                except OSError as failure:
-                    value, error = None, f"Unexpected error: {failure}"
-                GLib.idle_add(finished, value, error)
+        self.run_worker(run(), group="job")
 
-            def finished(value, error):
-                self.busy = False
-                self.stack.set_sensitive(True)
-                if error:
-                    self.say(error, error=True)
-                else:
-                    done(value)
-                return False
+    # Accounts on this computer -----------------------------------------------
 
-            threading.Thread(target=worker, daemon=True).start()
+    def refresh_people(self):
+        self.job(lambda: self.request("list_known", timeout=10), self.listed,
+                 "Loading accounts…")
 
-        # Pages ------------------------------------------------------------
+    def listed(self, people):
+        self.people = people
+        options = self.query_one("#people-list", OptionList)
+        options.clear_options()
+        for index, person in enumerate(people):
+            kind = ("Guest" if person.get("temporary") else
+                    "Remote signer" if person["method"] == "bunker" else "Password")
+            npub = f"{person['npub'][:12]}…{person['npub'][-6:]}"
+            options.add_option(Option(Text.assemble(
+                (f"@ {person['name'] or person['username']}", "bold"), "\n  ",
+                (f"{npub} · {kind}", "dim"),
+            ), id=str(index)))
+        if people:
+            options.add_option(None)
+        options.add_option(Option(Text("+ Sign in with another account…"), id="add"))
+        options.highlighted = 0
+        options.focus()
+        self.say("")
 
-        def build_people(self):
-            self.defaults = {}
-            box, _ = self.page("people", "kwakOS", "Choose your identity to sign in.")
-            self.people = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-            box.pack_start(self.people, False, False, 6)
-            for label, page in (
-                ("Sign in with a Nostr key…", "key"),
-                ("Create a new identity…", "create"),
-                ("Local account…", "local"),
-            ):
-                button = Gtk.Button(label=label)
-                button.get_style_context().add_class("link-row")
-                button.connect("clicked", lambda _, p=page: self.open(p))
-                box.pack_start(button, False, False, 0)
+    def on_option_list_option_selected(self, event):
+        if event.option_list.id == "add-list":
+            self.show(event.option.id, f"#{self.ADD_FOCUS[event.option.id]}")
+        elif event.option.id == "add":
+            self.show("add")
+        else:
+            self.choose(self.people[int(event.option.id)])
 
-        def open(self, page):
-            focus = {"key": self.key_text, "create": self.create_password,
-                     "local": self.local_user}[page]
-            self.show(page, focus)
+    def choose(self, person):
+        self.selected = person
+        name = person["name"] or person["username"]
+        unlock = lambda: self.request("unlock", username=person["username"])
+        if person.get("temporary"):
+            # A guest has no password and no stored key, so it opens directly.
+            self.job(unlock, self.granted, "Starting session…")
+        elif person["method"] == "bunker":
+            self.wait_for_signer(name, unlock, back="people")
+        else:
+            self.query_one("#unlock-name", Static).update(name)
+            self.field("unlock-password").value = ""
+            self.show("unlock", "#unlock-password")
 
-        def refresh(self):
-            self.job(lambda: client.request("list_known", timeout=10), self.listed,
-                     "Loading identities…")
+    def unlock(self):
+        username = self.selected["username"]
+        password = self.field("unlock-password").value
+        self.job(lambda: self.request("unlock", username=username, password=password),
+                 self.granted, "Decrypting…")
 
-        def listed(self, people):
-            for child in self.people.get_children():
-                self.people.remove(child)
-            for person in people:
-                button = Gtk.Button()
-                button.get_style_context().add_class("mode-row")
-                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-                image = Gtk.Image.new_from_icon_name("avatar-default", Gtk.IconSize.DIALOG)
-                if person["avatar"]:
-                    try:
-                        image.set_from_pixbuf(GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                            person["avatar"], 48, 48, True))
-                    except GLib.Error:
-                        pass
-                row.pack_start(image, False, False, 0)
-                labels = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-                name = Gtk.Label(label=person["name"] or person["username"], xalign=0)
-                name.get_style_context().add_class("mode-name")
-                labels.pack_start(name, False, False, 0)
-                short = person["npub"][:16] + "…" + person["npub"][-6:]
-                detail = Gtk.Label(label=short, xalign=0)
-                detail.get_style_context().add_class("description")
-                labels.pack_start(detail, False, False, 0)
-                row.pack_start(labels, True, True, 0)
-                button.add(row)
-                button.connect("clicked", lambda _, p=person: self.choose(p))
-                self.people.pack_start(button, False, False, 0)
-            self.people.show_all()
-            self.say("" if people else "No identities on this computer yet.")
+    # Another account ---------------------------------------------------------
 
-        def choose(self, person):
-            self.selected = person
-            self.unlock_title.set_text(person["name"] or person["username"])
-            bunker = person["method"] == "bunker"
-            self.unlock_password.set_visible(not bunker)
-            self.unlock_password.set_text("")
-            self.unlock_hint.set_text(
-                "Approve the login request in your remote signer." if bunker
-                else "Enter the password for this identity on this computer."
-            )
-            self.show("unlock", None if bunker else self.unlock_password)
-            if bunker:
-                self.unlock()
+    def create(self):
+        password = self.field("create-password").value
+        if password != self.field("create-confirm").value:
+            self.say("The passwords do not match.", error=True)
+            return
+        self.job(lambda: self.request("create_identity", password=password),
+                 self.granted, "Creating your account…")
 
-        def build_unlock(self):
-            box, self.unlock_title = self.page("unlock", "", "")
-            self.unlock_hint = Gtk.Label(xalign=0, wrap=True)
-            self.unlock_hint.get_style_context().add_class("description")
-            box.pack_start(self.unlock_hint, False, False, 0)
-            self.unlock_password = self.entry("Password", secret=True)
-            box.pack_start(self.unlock_password, False, False, 0)
-            self.unlock_password.set_no_show_all(True)
-            self.defaults["unlock"] = [self.buttons(box, "_Sign in", self.unlock)]
-
-        def unlock(self):
-            username = self.selected["username"]
-            password = self.unlock_password.get_text()
-            waiting = ("Waiting for your signer to approve…"
-                       if self.selected["method"] == "bunker" else "Unlocking…")
-            self.job(lambda: client.request("unlock", username=username, password=password),
-                     self.granted, waiting)
-
-        def build_key(self):
-            box, _ = self.page(
-                "key", "Sign in with a key", "Paste an nsec, an ncryptsec, or a bunker:// URI."
-            )
-            self.key_text = self.entry("nsec1… / ncryptsec1… / bunker://…", secret=True)
-            self.key_text.connect("changed", self.key_changed)
-            box.pack_start(self.key_text, False, False, 0)
-            self.key_password = self.entry("", secret=True)
-            self.key_password.set_no_show_all(True)
-            box.pack_start(self.key_password, False, False, 0)
-            self.key_hint = Gtk.Label(xalign=0, wrap=True, max_width_chars=52)
-            self.key_hint.get_style_context().add_class("description")
-            box.pack_start(self.key_hint, False, False, 0)
-            self.defaults["key"] = [self.buttons(box, "_Sign in", self.sign_in_key)]
+    def on_input_changed(self, event):
+        if event.input.id == "key-text":
             self.key_changed()
 
-        def key_changed(self, *_):
-            text = self.key_text.get_text().strip().lower()
-            if text.startswith("bunker://"):
-                placeholder, hint = None, (
-                    "Your remote signer will be asked to confirm this identity. "
-                    "It stays on this computer until you sign out of it."
-                )
-            elif text.startswith("ncryptsec"):
-                placeholder, hint = "ncryptsec password", (
-                    "Your encrypted key is kept on this computer; "
-                    "sign in again with the same password."
-                )
-            else:
-                placeholder, hint = "Password (optional)", (
-                    "With a password, your key is kept on this computer as an ncryptsec. "
-                    "Without one, you sign in as a temporary user that is deleted, "
-                    "with all its files, when you log out."
-                )
-            self.key_password.set_visible(placeholder is not None)
-            self.key_password.set_placeholder_text(placeholder or "")
-            self.key_hint.set_text(hint)
-
-        def sign_in_key(self):
-            text = self.key_text.get_text().strip()
-            password = self.key_password.get_text()
-            lowered = text.lower()
-            if lowered.startswith("bunker://"):
-                work = lambda: client.request("login_bunker", uri=text)
-                message = "Waiting for your signer to approve…"
-            elif lowered.startswith("ncryptsec"):
-                work = lambda: client.request("login_ncryptsec", ncryptsec=text, password=password)
-                message = "Decrypting…"
-            else:
-                work = lambda: client.request("login_nsec", nsec=text, password=password)
-                message = "Setting up your identity…"
-            self.job(work, self.granted, message)
-
-        def build_create(self):
-            box, _ = self.page(
-                "create", "Create a new identity",
-                "A new Nostr key is generated on this computer. With a password it is kept "
-                "here as an ncryptsec; without one you get a temporary guest identity that is "
-                "deleted when you log out.",
+    def key_changed(self):
+        if self.field("key-text").value.strip().lower().startswith("ncryptsec"):
+            placeholder, hint = "ncryptsec password", (
+                "Your encrypted key is kept on this computer; "
+                "sign in again with the same password."
             )
-            self.create_password = self.entry("Password (optional)", secret=True)
-            self.create_confirm = self.entry("Repeat password", secret=True)
-            box.pack_start(self.create_password, False, False, 0)
-            box.pack_start(self.create_confirm, False, False, 0)
-            self.defaults["create"] = [self.buttons(box, "_Create", self.create)]
-
-        def create(self):
-            password = self.create_password.get_text()
-            if password != self.create_confirm.get_text():
-                self.say("The passwords do not match.", error=True)
-                return
-            self.job(lambda: client.request("create_identity", password=password),
-                     self.created, "Creating your identity…")
-
-        def build_backup(self):
-            box, _ = self.page(
-                "backup", "Back up your key",
-                "This is the only time your key is shown. Without it you cannot use this "
-                "identity again once it is removed from this computer.",
+        else:
+            placeholder, hint = "Password (optional)", (
+                "With a password, your key is kept on this computer as an ncryptsec. "
+                "Without one, you sign in as a guest that is deleted, "
+                "with all its files, when you log out."
             )
-            self.backup = Gtk.Label(xalign=0, selectable=True, wrap=True)
-            self.backup.set_line_wrap_mode(2)  # Pango.WrapMode.CHAR
-            self.backup.get_style_context().add_class("secret")
-            box.pack_start(self.backup, False, False, 0)
-            self.defaults["backup"] = [
-                self.buttons(box, "_I saved it — continue", self.continue_backup, back=False)
-            ]
+        self.field("key-password").placeholder = placeholder
+        self.query_one("#key-hint", Static).update(hint)
 
-        def created(self, grant):
-            self.pending = grant
-            text = grant["nsec"]
-            if grant.get("ncryptsec"):
-                text += f"\n\nEncrypted (NIP-49):\n{grant['ncryptsec']}"
-            self.backup.set_text(text)
-            self.show("backup")
+    def sign_in_key(self):
+        text = self.field("key-text").value.strip()
+        password = self.field("key-password").value
+        if text.lower().startswith("ncryptsec"):
+            work = lambda: self.request("login_ncryptsec", ncryptsec=text, password=password)
+            message = "Decrypting…"
+        else:
+            work = lambda: self.request("login_nsec", nsec=text, password=password)
+            message = "Setting up your account…"
+        self.job(work, self.granted, message)
 
-        def continue_backup(self):
-            grant, self.pending = self.pending, None
-            self.backup.set_text("")
-            self.granted(grant)
+    def sign_in_bunker(self):
+        uri = self.field("bunker-uri").value.strip()
+        if not uri.lower().startswith("bunker://"):
+            self.say("Paste a bunker:// URI.", error=True)
+            return
+        self.wait_for_signer("Remote signer", lambda: self.request("login_bunker", uri=uri),
+                             back="bunker")
 
-        def build_local(self):
-            box, _ = self.page("local", "Local account", "Sign in with a Unix account.")
-            self.local_user = self.entry("Username")
-            self.local_password = self.entry("Password", secret=True)
-            box.pack_start(self.local_user, False, False, 0)
-            box.pack_start(self.local_password, False, False, 0)
-            self.defaults["local"] = [self.buttons(box, "_Sign in", self.sign_in_local)]
+    def sign_in_local(self):
+        username = self.field("local-user").value.strip()
+        password = self.field("local-password").value
+        self.job(lambda: self.greetd.login(username, password, self.command),
+                 lambda _: self.exit(), "Starting session…")
 
-        def sign_in_local(self):
-            username = self.local_user.get_text().strip()
-            password = self.local_password.get_text()
-            self.job(lambda: greetd.login(username, password, session_command()),
-                     lambda _: Gtk.main_quit(), "Starting session…")
+    # Waiting for a remote signer ---------------------------------------------
 
-        def granted(self, grant):
-            for field in (self.key_text, self.key_password, self.create_password,
-                          self.create_confirm, self.unlock_password):
-                field.set_text("")
-            self.job(lambda: greetd.login(grant["username"], grant["token"], session_command()),
-                     lambda _: Gtk.main_quit(), "Starting session…")
+    def wait_for_signer(self, name, work, back):
+        """Show the loading page until the signer answers; errors return to ``back``."""
+        self.query_one("#waiting-name", Static).update(name)
+        self.waiting_back = back
+        self.query_one("#waiting .back").disabled = False
+        self.show("waiting")
+        self.job(work, self.granted, "", failed=lambda: self.show(self.waiting_back))
 
-    provider = Gtk.CssProvider()
-    provider.load_from_path(str(Path(__file__).with_name("greeter.css")))
-    Gtk.StyleContext.add_provider_for_screen(
-        Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-    )
-    window = Greeter()
-    window.show_all()
-    window.show("people")
-    Gtk.main()
-    return 0
+    def cancel_waiting(self):
+        # kwak-userd finishes the request; the greeter ignores its result.
+        self.workers.cancel_group(self, "job")
+        self.busy = False
+        self.show(self.waiting_back)
+
+    # Navigation and the session ----------------------------------------------
+
+    def action_back(self):
+        if self.page == "waiting":
+            if not self.query_one("#waiting .back").disabled:
+                self.cancel_waiting()
+        elif not self.busy and self.page in self.BACK:
+            self.show(self.BACK[self.page])
+
+    def on_button_pressed(self, event):
+        if event.button.has_class("back"):
+            self.action_back()
+        else:
+            self.submit()
+
+    def on_input_submitted(self, event):
+        self.submit()
+
+    def submit(self):
+        action = {"unlock": self.unlock, "create": self.create, "key": self.sign_in_key,
+                  "bunker": self.sign_in_bunker, "local": self.sign_in_local}.get(self.page)
+        if action and not self.busy:
+            action()
+
+    def granted(self, grant):
+        for name in ("key-text", "key-password", "bunker-uri", "unlock-password",
+                     "create-password", "create-confirm"):
+            self.field(name).value = ""
+        # Once greetd is starting the session it is too late to cancel.
+        self.query_one("#waiting .back").disabled = True
+        waiting = self.page == "waiting"
+        self.job(lambda: self.greetd.login(grant["username"], grant["token"], self.command),
+                 lambda _: self.exit(), "Starting session…",
+                 failed=(lambda: self.show(self.waiting_back)) if waiting else None)
 
 
-def main_signout():
-    import gi
+class SignOutApp(App):
+    """Confirm, then delete this account from the computer."""
 
-    gi.require_version("Gtk", "3.0")
-    from gi.repository import Gtk
+    CSS = CSS
+    ENABLE_COMMAND_PALETTE = False
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
 
-    dialog = Gtk.MessageDialog(
-        message_type=Gtk.MessageType.WARNING, buttons=Gtk.ButtonsType.NONE,
-        text="Sign out of this computer?",
-    )
-    dialog.format_secondary_text(
-        "Your account, home folder, and every file in it are permanently deleted from "
-        "this computer. Your Nostr identity itself is not affected."
-    )
-    dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
-    dialog.add_button("_Delete and sign out", Gtk.ResponseType.ACCEPT).get_style_context() \
-        .add_class("destructive-action")
-    dialog.set_default_response(Gtk.ResponseType.CANCEL)
-    answer = dialog.run()
-    dialog.destroy()
-    if answer != Gtk.ResponseType.ACCEPT:
-        return 1
-    try:
-        client.request("signout", timeout=10)
-    except client.UserError as error:
-        failure = Gtk.MessageDialog(message_type=Gtk.MessageType.ERROR,
-                                    buttons=Gtk.ButtonsType.CLOSE, text=str(error))
-        failure.run()
-        return 1
-    return 0
+    def __init__(self, request=client.request):
+        super().__init__()
+        self.request = request
+
+    def compose(self):
+        with VerticalScroll(id="panel") as panel:
+            panel.border_title = "SIGN OUT"
+            yield Static("Sign out of this computer?", classes="title")
+            yield Static(
+                "Your account, home folder, and every file in it are permanently deleted "
+                "from this computer. Your Nostr identity itself is not affected.",
+                classes="hint",
+            )
+            yield buttons("Delete and sign out", "signout", back="Cancel", variant="error")
+            yield Static(id="status")
+        yield Footer()
+
+    def on_mount(self):
+        self.register_theme(THEME)
+        self.theme = "kwak"
+        self.query_one(".back").focus()
+
+    def action_cancel(self):
+        self.exit(1)
+
+    def on_button_pressed(self, event):
+        if event.button.has_class("back"):
+            self.exit(1)
+        else:
+            self.sign_out()
+
+    @work(exclusive=True)
+    async def sign_out(self):
+        self.query_one(".buttons").disabled = True
+        status = self.query_one("#status", Static)
+        status.update("Signing out…")
+        status.add_class("shown")
+        try:
+            await asyncio.to_thread(self.request, "signout", timeout=10)
+        except client.UserError as error:
+            status.update(str(error))
+            status.add_class("error", "shown")
+            self.query_one(".buttons").disabled = False
+            return
+        # The removal job ends this session; exit in case it has not yet.
+        self.exit(0)
 
 
 if __name__ == "__main__":
-    if sys.argv[1:] == ["--signout"]:
-        raise SystemExit(main_signout())
-    raise SystemExit(main_greeter())
+    app = SignOutApp() if sys.argv[1:] == ["--signout"] else GreeterApp()
+    result = app.run()
+    raise SystemExit(result if isinstance(result, int) else 0)

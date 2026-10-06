@@ -1,8 +1,10 @@
 # Window tiling settings
 
-Open **Settings** from Wofi, or press **Super+,**. Select a window tiling mode
-and press **Apply**. The change takes effect immediately and is saved for later
-sessions. This app has one setting.
+Open **Settings** from Wofi, or press **Super+,**. It is a terminal app in a small
+borderless kitty window; run `kwak-settings` in a terminal to use it there instead.
+Choose a window tiling mode with the mouse, or with the arrow keys and Enter. The
+change takes effect immediately and is saved for later sessions. Esc or `q`
+closes it. This app has one setting.
 
 | Mode | Behavior |
 | --- | --- |
@@ -18,7 +20,8 @@ workspace in those modes.
 
 Super+Left/Right switches workspaces in Kwassik. In the other modes, Super+arrow
 keys focus neighboring windows. Super+1…0 still switches workspaces directly.
-Floating dialogs and the Settings window retain their normal floating behavior.
+Floating dialogs and kwakOS's own windows (`org.kwak.*`, such as Settings) keep
+their normal floating behavior.
 
 Before separating a workspace with multiple main windows, Kwassik requires its
 other floating windows/dialogs to be closed. The app reports this before changing
@@ -28,8 +31,8 @@ cannot safely infer which window should take a dialog to another workspace.
 ## Visual proofs
 
 These are captures from the built NixOS VM, using four colored terminal fixtures.
-The test selected each mode through the real Settings radio controls and Apply
-button. It verified the saved preference, configuration reload, compositor layout
+They show the earlier GTK version of Settings, which had an Apply button. The
+test selected each mode through the real Settings controls. It verified the saved preference, configuration reload, compositor layout
 name, and window geometry. See [runtime results](proofs/settings/runtime.json).
 
 | Mode | Desktop proof | Settings selection |
@@ -69,7 +72,8 @@ nix build .#checks.x86_64-linux.window-modes .#checks.x86_64-linux.desktop-confi
 nix flake check --no-build
 ```
 
-Building `kwak-settings` runs the controller's error/persistence tests. The app is
+Building `kwak-settings` runs the controller's error/persistence tests and
+headless tests of the terminal UI. The app is
 also a standalone flake (`nix build ./apps/settings`, `nix develop ./apps/settings`).
 The window-modes check runs the real Lua policy against a small compositor
 boundary double. The desktop check parses
@@ -82,7 +86,7 @@ no other windows open and the Hyprland session environment exported:
 python3 tests/settings-modes.py --output /tmp/settings-proof --grim /path/to/grim
 ```
 
-This test selects each mode through the GTK radio controls and Apply button,
+This test selects each mode through the terminal UI with the arrow keys and Enter,
 checks the live layout, saved preference, reload behavior, and actual window
 geometry, and captures screenshots. It closes only its own test windows and
 leaves Scrolling saved for a separate full VM reboot check. Physical hardware

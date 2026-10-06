@@ -13,7 +13,9 @@ is required.
 - `modules/users.nix`: Nostr sign-in: greetd, the `kwak-userd` user manager, and PAM.
 - `config/`: Hyprland/Hyprflow Lua defaults and Wofi configuration/style.
 - `apps/`: kwakOS's own Python apps, one folder each (`settings`, `userd`,
-  `greeter`) with its own `package.nix`, `flake.nix`, and tests.
+  `greeter`) with its own `package.nix`, `flake.nix`, and tests. The apps with a
+  UI are [Textual](https://textual.textualize.io) terminal apps, opened in a
+  borderless kitty window and usable with mouse or keyboard.
 - `packages/`: pinned desktop packages, Hyprflow plugin, and Wofi grid patch.
 - `hosts/vm`: local QEMU VM with a separate test password.
 - `hosts/physical`: UEFI installation with a hardware configuration template.
@@ -30,7 +32,7 @@ Install Nix on a Linux host, with flakes enabled. From this repository:
 nix run .#vm
 ```
 
-Sign in with a Nostr key, or choose **Local account…** and log in as **kwak**,
+Sign in with a Nostr key, or choose **Sign in with another account… → Linux user** and log in as **kwak**,
 password **nixos**. See [Nostr users](docs/users.md). The VM has 4 cores, 4 GiB RAM, and a persistent 20 GiB
 virtual disk created in the current directory. Shut it down before deleting
 `kwakos-vm.qcow2` to reset it. The password is applied when the account is first

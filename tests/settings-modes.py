@@ -2,7 +2,7 @@
 """Exercise Settings and capture all layouts in the disposable kwakOS VM.
 
 Requires an otherwise empty desktop and explicit HYPRLAND_INSTANCE_SIGNATURE
-and WAYLAND_DISPLAY. Selections and Apply go through the real GTK UI using
+and WAYLAND_DISPLAY. Selections go through the real terminal UI using
 Hyprland keyboard events. The successful run leaves Scrolling saved for a
 separate full VM reboot check; it closes only its own fixture processes.
 """
@@ -230,15 +230,15 @@ def main():
         assert window["floating"], window
         focus_window(window)
         # Loading uses one bounded five-second IPC call before focusing the
-        # active radio. Wait out that bound before sending selection events.
+        # current mode. Wait out that bound before sending selection events.
         time.sleep(5.2)
         offset = MODES.index(mode) - MODES.index(before)
         for _ in range(abs(offset)):
             shortcut(window, "Down" if offset > 0 else "Up")
         if offset:
-            shortcut(window, "a", "ALT")
+            shortcut(window, "Return")
         state = verify_mode(mode)
-        time.sleep(0.4)  # Let the idle callback paint the saved-state message.
+        time.sleep(0.4)  # Let the app paint the saved-state message.
         if screenshot:
             capture(f"settings-{mode}.png")
         shortcut(window, "Escape")
