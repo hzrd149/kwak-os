@@ -20,8 +20,21 @@
           {
             inherit (hyprland.packages.${system}) hyprland;
           };
+      desktopHyprflow =
+        hyprland.inputs.nixpkgs.legacyPackages.${system}.callPackage ./packages/hyprflow.nix
+          {
+            hyprland = desktopHyprland;
+          };
       desktopOverlay = final: prev: {
         hyprland = desktopHyprland;
+        hyprflow = desktopHyprflow;
+        kwak-hyprland-config = final.writeText "hyprland.lua" (
+          builtins.readFile ./config/hypr/hyprland.lua
+          + "\n"
+          + builtins.replaceStrings [ "@HYPRFLOW_PLUGIN@" ] [ "${final.hyprflow}/lib/hyprflow.so" ] (
+            builtins.readFile ./config/hypr/hyprflow.lua
+          )
+        );
         hyprlax = final.callPackage ./packages/hyprlax.nix { inherit (prev) hyprlax; };
         wofi = final.callPackage ./packages/wofi.nix { inherit (prev) wofi; };
         kwak-settings = final.callPackage ./packages/settings.nix { };
@@ -53,9 +66,11 @@
       packages.${system} = {
         inherit (pkgs)
           hyprland
+          hyprflow
           hyprlax
           wofi
           kwak-settings
+          kwak-hyprland-config
           ;
         vm = self.nixosConfigurations.vm.config.system.build.vm;
         iso = self.nixosConfigurations.iso.config.system.build.isoImage;
@@ -108,7 +123,7 @@
             export XDG_RUNTIME_DIR="$TMPDIR/runtime"
             mkdir -m 700 "$XDG_RUNTIME_DIR"
             if ! ${pkgs.hyprland}/bin/Hyprland \
-              --verify-config --config ${./config/hypr/hyprland.lua} > config-check.log 2>&1; then
+              --verify-config --config ${pkgs.kwak-hyprland-config} > config-check.log 2>&1; then
               cat config-check.log
               exit 1
             fi
