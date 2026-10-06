@@ -10,10 +10,11 @@ is required.
 - `flake.nix` and `flake.lock`: system outputs and pinned Nixpkgs revision.
 - `modules/base.nix`: network, locale, timezone, administrator account, and Nix.
 - `modules/desktop.nix`: Hyprland, audio, and basic desktop applications.
-- `modules/users.nix`: Nostr sign-in: greetd, the `kwak-userd` user manager, and PAM.
+- `modules/users.nix`: Nostr sign-in: greetd, the `kwak-userd` user manager, PAM, the
+  swipe card reader service, and account switching with the hyprlock lock screen.
 - `config/`: Hyprland/Hyprflow Lua defaults and Wofi configuration/style.
 - `apps/`: kwakOS's own Python apps, one folder each (`settings`, `userd`,
-  `greeter`) with its own `package.nix`, `flake.nix`, and tests. The apps with a
+  `greeter`, `cards`) with its own `package.nix`, `flake.nix`, and tests. The apps with a
   UI are [Textual](https://textual.textualize.io) terminal apps, opened in a
   borderless kitty window and usable with mouse or keyboard.
 - `packages/`: pinned desktop packages, Hyprflow plugin, and Wofi grid patch.

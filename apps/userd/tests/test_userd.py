@@ -72,6 +72,8 @@ class FakeNak:
         return self.pubkey
 
     def bunker_pubkey(self, uri, home):
+        # The environment nak would get, to check which client key it uses.
+        self.bunker_env = userd.Nak.signer_env(uri, home)
         return self.pubkey
 
     def fetch(self, pubkey, relays, kinds=(0, 10002)):
@@ -80,6 +82,54 @@ class FakeNak:
     def publish(self, kind, content, tags, relays, signer, home=None):
         self.published = (kind, content, tags, relays, signer, home)
         return {"kind": kind, "pubkey": self.pubkey, "id": "ab" * 32}
+
+
+class FakeSessions:
+    """Sessions on seat0; starts with the sign-in screen's greeter on screen."""
+
+    def __init__(self):
+        self.sessions = []
+        self.pids = {}
+        self.log = []
+        self.active_id = None
+        self.add("c1", "greeter", "greeter", pid=100)
+        self.active_id = "c1"
+
+    def add(self, session_id, user, kind="user", pid=None):
+        self.sessions.append({"id": session_id, "user": user, "class": kind,
+                              "state": "online", "locked": False, "seat": "seat0", "vt": 0})
+        if pid is not None:
+            self.pids[pid] = session_id
+
+    def get(self, session_id):
+        return next((s for s in self.sessions if s["id"] == session_id), None)
+
+    def all(self):
+        return list(self.sessions)
+
+    def active(self):
+        return self.get(self.active_id)
+
+    def of_user(self, username):
+        return next((s for s in self.sessions if s["user"] == username and s["class"] == "user"),
+                    None)
+
+    def of_pid(self, pid):
+        return self.get(self.pids.get(pid))
+
+    def activate(self, session_id):
+        self.log.append(("activate", session_id))
+        self.active_id = session_id
+
+    def lock(self, session_id):
+        self.log.append(("lock", session_id))
+
+    def unlock(self, session_id):
+        self.log.append(("unlock", session_id))
+
+    def chvt(self, vt):
+        self.log.append(("chvt", vt))
+        self.active_id = None
 
 
 class Clock:
@@ -149,9 +199,10 @@ class ManagerCase(unittest.TestCase):
             userd.DEFAULTS, state_dir=str(root / "state"), hooks=str(root / "hooks"),
             relays=["ws://relay"],
         )
+        self.sessions = FakeSessions()
         self.manager = userd.UserManager(
             self.config, run=self.system, nak=self.nak, clock=self.clock, users=self.system,
-            executable="/bin/kwak-userd",
+            executable="/bin/kwak-userd", sessions=self.sessions,
         )
 
     def commands(self, name):
@@ -363,6 +414,17 @@ class NcryptsecTests(ManagerCase):
             self.manager.login_ncryptsec(userd.bech32_encode("ncryptsec", bytes(data)), "x")
 
 
+class SignerEnvTests(unittest.TestCase):
+    def test_client_key_comes_from_nak_home(self):
+        with tempfile.TemporaryDirectory() as home:
+            self.assertEqual(userd.Nak.signer_env("bunker://x", home),
+                             {"NOSTR_SECRET_KEY": "bunker://x", "HOME": home})
+            Path(home, "client-key").write_text("22" * 32 + "\n")
+            self.assertEqual(userd.Nak.signer_env("bunker://x", home)["NOSTR_CLIENT_KEY"],
+                             "22" * 32)
+        self.assertEqual(userd.Nak.signer_env("ab" * 32), {"NOSTR_SECRET_KEY": "ab" * 32})
+
+
 class BunkerTests(ManagerCase):
     URI = "bunker://abc?relay=wss%3A%2F%2Fr&secret=x"
 
@@ -471,12 +533,314 @@ class RemovalTests(ManagerCase):
         self.assertEqual([p["username"] for p in self.manager.known()], [USER])
 
 
+class CardTests(ManagerCase):
+    def setUp(self):
+        super().setUp()
+        hidraw = Path(self.directory.name) / "hidraw"
+        hidraw.mkdir()
+        self.config["hidraw"] = str(hidraw)
+
+    def plug_in_reader(self):
+        usb = Path(self.directory.name) / "usb" / "1-1"
+        (usb / "1-1:1.0" / "0003:C216:0180.0001").mkdir(parents=True)
+        (usb / "idVendor").write_text("c216\n")
+        (usb / "idProduct").write_text("0180\n")
+        node = Path(self.config["hidraw"]) / "hidraw0"
+        node.mkdir()
+        (node / "device").symlink_to(usb / "1-1:1.0" / "0003:C216:0180.0001")
+
+    def swipe(self, **event):
+        """Swipe at the sign-in screen; its greeter (pid 100) picks it up."""
+        self.assertEqual(self.manager.card_swipe(event), {"delivered": True})
+        return self.manager.wait_card(after=0, wait=0, pid=100)["card"]
+
+    def test_swipe_without_a_session_on_screen_is_dropped(self):
+        self.sessions.active_id = None
+        self.assertEqual(self.manager.card_swipe({"format": "SKC1", "secret_key": "11" * 32}),
+                         {"delivered": False})
+        self.assertIsNone(self.manager.wait_card(after=0, wait=0)["card"])
+
+    def test_only_the_greeter_on_screen_gets_the_swipe(self):
+        self.sessions.add("c2", "greeter", "greeter", pid=200)
+        self.manager.card_swipe({"format": "SKC1", "secret_key": "11" * 32})
+        self.assertIsNone(self.manager.wait_card(after=0, wait=0, pid=200)["card"])
+        self.assertIsNotNone(self.manager.wait_card(after=0, wait=0, pid=100)["card"])
+
+    def test_used_swipe_is_not_handed_out_again(self):
+        card = self.swipe(format="SKC1", secret_key="11" * 32)
+        self.manager.card_login(card["id"])
+        self.assertIsNone(self.manager.wait_card(after=0, wait=0, pid=100)["card"])
+
+    def test_reader_detection(self):
+        self.assertFalse(self.manager.wait_card(wait=0)["reader"])
+        self.plug_in_reader()
+        self.assertTrue(self.manager.wait_card(wait=0)["reader"])
+
+    def test_summary_holds_no_secret(self):
+        card = self.swipe(format="SKC1", secret_key="11" * 32)
+        self.assertEqual(
+            {k: card[k] for k in ("format", "username", "known", "password")},
+            {"format": "SKC1", "username": USER, "known": False, "password": "optional"})
+        self.assertNotIn("11" * 32, json.dumps(card))
+        ncryptsec = userd.ncryptsec_encrypt("11" * 32, "hunter2", log_n=10)
+        card = self.swipe(format="SKC2", ncryptsec=ncryptsec)
+        self.assertEqual(card["password"], "required")
+        self.assertNotIn(ncryptsec, json.dumps(card))
+
+    def test_unknown_skc1_is_a_guest_without_password(self):
+        card = self.swipe(format="SKC1", secret_key="11" * 32)
+        result = self.manager.card_login(card["id"])
+        self.assertTrue(result["temporary"])
+        self.assertIsNone(self.stored_key())
+
+    def test_unknown_skc1_with_password_is_saved(self):
+        card = self.swipe(format="SKC1", secret_key="11" * 32)
+        self.assertFalse(self.manager.card_login(card["id"], "hunter2")["temporary"])
+        self.assertIn("ncryptsec", self.stored_key())
+
+    def test_known_skc1_signs_in_and_keeps_stored_key(self):
+        self.manager.login_nsec("11" * 32, "hunter2")
+        stored = self.stored_key()
+        card = self.swipe(format="SKC1", secret_key="11" * 32)
+        self.assertEqual((card["known"], card["password"]), (True, "none"))
+        self.assertIn("token", self.manager.card_login(card["id"]))
+        self.assertEqual(self.stored_key(), stored)
+
+    def test_skc2_wrong_password_keeps_the_swipe(self):
+        ncryptsec = userd.ncryptsec_encrypt("11" * 32, "hunter2", log_n=10)
+        card = self.swipe(format="SKC2", ncryptsec=ncryptsec)
+        with self.assertRaisesRegex(userd.UserError, "Wrong password"):
+            self.manager.card_login(card["id"], "nope")
+        self.assertFalse(self.manager.card_login(card["id"], "hunter2")["temporary"])
+        self.assertEqual(self.stored_key(), {"ncryptsec": ncryptsec})
+        with self.assertRaisesRegex(userd.UserError, "expired"):
+            self.manager.card_login(card["id"], "hunter2")
+
+    def test_swipe_expires(self):
+        card = self.swipe(format="SKC1", secret_key="11" * 32)
+        self.clock.now += self.config["card_ttl"]
+        with self.assertRaisesRegex(userd.UserError, "expired"):
+            self.manager.card_login(card["id"])
+        self.assertEqual(self.commands("useradd"), [])
+
+    def test_new_swipe_replaces_the_old_one(self):
+        first = self.swipe(format="SKC1", secret_key="11" * 32)
+        self.swipe(format="SKC1", secret_key="11" * 32)
+        with self.assertRaisesRegex(userd.UserError, "expired"):
+            self.manager.card_login(first["id"])
+
+    def test_skc3_card_signs_in_through_its_bunker(self):
+        uri = "bunker://" + "ab" * 32 + "?relay=wss%3A%2F%2Fr"
+        card = self.swipe(format="SKC3", bunker=uri, client_key="22" * 32)
+        self.assertEqual((card["format"], card["password"], card["signer"]),
+                         ("SKC3", "none", True))
+        self.assertNotIn("22" * 32, json.dumps(card))
+        result = self.manager.card_login(card["id"])
+        self.assertEqual((result["username"], result["temporary"]), (USER, False))
+        self.assertEqual(self.nak.bunker_env["NOSTR_CLIENT_KEY"], "22" * 32)
+        # The paired client key stays with nak's state for later sign-ins.
+        self.assertEqual(self.stored_key(), {"bunker": uri})
+        self.assertEqual((self.manager.key_dir(USER) / "nak" / "client-key").read_text(),
+                         "22" * 32 + "\n")
+        self.nak.bunker_env = None
+        self.manager.unlock(USER)
+        self.assertEqual(self.nak.bunker_env["NOSTR_CLIENT_KEY"], "22" * 32)
+
+    def test_skc3_card_with_unanswered_signer_creates_nothing(self):
+        card = self.swipe(format="SKC3", bunker="bunker://" + "ab" * 32, client_key="22" * 32)
+        with patch.object(self.nak, "bunker_pubkey", side_effect=userd.UserError("timeout")):
+            with self.assertRaises(userd.UserError):
+                self.manager.card_login(card["id"])
+        self.assertEqual(self.commands("useradd"), [])
+        self.assertEqual(list((Path(self.config["state_dir"]) / "bunker-clients").iterdir()), [])
+
+    def test_unreadable_card(self):
+        self.assertEqual(self.swipe(error="card_format")["error"], "card_format")
+        self.assertEqual(self.swipe(format="SKC2", ncryptsec="nope")["error"], "card_format")
+        self.assertEqual(self.swipe(format="SKC3", bunker="https://x", client_key="22" * 32)
+                         ["error"], "card_format")
+        self.assertEqual(self.swipe(format="SKC9")["error"], "card_format")
+
+
+class SessionsTests(unittest.TestCase):
+    """Parsing loginctl output and cgroups."""
+
+    OUTPUT = {
+        ("list-sessions", "--no-legend"): " 3 1000 kwak seat0 1234 user tty2 no -\n"
+                                          "c1  990 greeter seat0 99 greeter tty1 no -\n"
+                                          " 7    0 root - 55 manager - no -\n",
+        ("show-seat", "seat0", "--property=ActiveSession", "--value"): "3\n",
+    }
+    SHOW = {
+        "3": "Id=3\nName=kwak\nClass=user\nState=active\nLockedHint=no\nVTNr=2\nSeat=seat0\n",
+        "c1": "Id=c1\nName=greeter\nClass=greeter\nState=online\nLockedHint=no\nVTNr=1\n"
+              "Seat=seat0\n",
+        "7": "Id=7\nName=root\nClass=manager\nState=active\nVTNr=0\nSeat=\n",
+    }
+
+    def loginctl(self, args, **kwargs):
+        self.calls.append(args)
+        rest = tuple(args[2:])
+        if rest[:1] == ("show-session",):
+            out = self.SHOW.get(rest[1], "")
+        else:
+            out = self.OUTPUT.get(rest, "")
+        return subprocess.CompletedProcess(args, 0, out, "")
+
+    def setUp(self):
+        self.calls = []
+        self.proc = tempfile.TemporaryDirectory()
+        self.addCleanup(self.proc.cleanup)
+        self.sessions = userd.Sessions(self.loginctl, proc=self.proc.name)
+
+    def test_sessions_on_seat0(self):
+        self.assertEqual([s["id"] for s in self.sessions.all()], ["3", "c1"])
+        self.assertEqual(self.sessions.active(),
+                         {"id": "3", "user": "kwak", "class": "user", "state": "active",
+                          "locked": False, "seat": "seat0", "vt": 2})
+        self.assertEqual(self.sessions.of_user("kwak")["id"], "3")
+        self.assertIsNone(self.sessions.of_user("greeter"))
+
+    def test_session_of_a_process(self):
+        Path(self.proc.name, "42").mkdir()
+        Path(self.proc.name, "42", "cgroup").write_text(
+            "0::/user.slice/user-990.slice/session-c1.scope\n")
+        self.assertEqual(self.sessions.of_pid(42)["id"], "c1")
+        self.assertIsNone(self.sessions.of_pid(43))
+
+    def test_commands(self):
+        self.sessions.lock("3")
+        self.sessions.activate("3")
+        self.assertEqual(self.calls, [["loginctl", "--no-pager", "lock-session", "3"],
+                                      ["loginctl", "--no-pager", "activate", "3"]])
+
+
+class SwitchTests(ManagerCase):
+    """Swipes during a session, and signing in to an account that is already open."""
+
+    SKC2 = {"format": "SKC2", "ncryptsec": "ncryptsec1placeholder"}
+
+    def setUp(self):
+        super().setUp()
+        self.sessions.add("c3", "kwak")
+        self.sessions.active_id = "c3"
+
+    def started(self):
+        return [c for c in self.system.commands if c[:2] == ["systemctl", "start"]]
+
+    def test_swipe_locks_the_session_and_opens_a_switch_greeter(self):
+        self.assertEqual(self.manager.card_swipe(self.SKC2), {"delivered": True})
+        self.assertIn(("lock", "c3"), self.sessions.log)
+        [command] = self.started()
+        self.assertRegex(command[-1], r"^kwak-greeter-switch@[0-9a-f]{16}\.service$")
+        # The new greeter comes on screen and picks up the swipe that opened it.
+        self.sessions.add("c9", "greeter", "greeter", pid=500)
+        self.sessions.active_id = "c9"
+        card = self.manager.wait_card(after=0, wait=0, pid=500)["card"]
+        self.assertEqual(card["format"], "SKC2")
+
+    def test_one_switch_greeter_at_a_time(self):
+        self.manager.card_swipe(self.SKC2)
+        self.manager.card_swipe(self.SKC2)
+        self.assertEqual(len(self.started()), 1)
+        self.clock.now += 20
+        self.manager.card_swipe(self.SKC2)
+        self.assertEqual(len(self.started()), 2)
+
+    def test_card_of_a_signed_in_account_switches_back(self):
+        self.manager.login_nsec("11" * 32, "hunter2")
+        self.sessions.add("c5", USER)
+        self.manager.card_swipe({"format": "SKC1", "secret_key": "11" * 32})
+        self.assertEqual(self.sessions.log, [("lock", "c3"), ("activate", "c5"),
+                                             ("unlock", "c5")])
+        self.assertEqual(self.started(), [])
+
+    def test_guest_session_is_not_locked(self):
+        self.manager.login_nsec("11" * 32)
+        self.sessions.add("c5", USER)
+        self.sessions.active_id = "c5"
+        self.manager.card_swipe(self.SKC2)
+        self.assertNotIn(("lock", "c5"), self.sessions.log)
+        self.assertEqual(len(self.started()), 1)
+
+    def test_unreadable_card_in_a_session_does_nothing(self):
+        self.assertEqual(self.manager.card_swipe({"error": "card_format"}),
+                         {"delivered": False})
+        self.assertEqual((self.sessions.log, self.started()), ([], []))
+
+    def test_signing_in_to_an_open_account_switches_to_it(self):
+        self.manager.login_nsec("11" * 32, "hunter2")
+        self.sessions.add("c5", USER)
+        grant = self.manager.login_nsec("11" * 32)
+        self.assertTrue(grant["switched"])
+        self.assertNotIn("token", grant)
+        self.assertEqual(self.sessions.log[-2:], [("activate", "c5"), ("unlock", "c5")])
+
+    def switch_greeter(self):
+        self.manager.card_swipe(self.SKC2)
+        instance = self.started()[0][-1].split("@")[1].split(".")[0]
+        self.sessions.add("c9", "greeter", "greeter", pid=500)
+        self.sessions.active_id = "c9"
+        return instance
+
+    def test_closing_the_switch_greeter_returns_to_the_locked_session(self):
+        instance = self.switch_greeter()
+        self.assertEqual(self.manager.switch_done(instance, pid=500), {"closed": True})
+        self.assertEqual(self.sessions.active_id, "c3")
+        self.assertEqual(self.system.commands[-1],
+                         ["systemctl", "stop", "--no-block",
+                          f"kwak-greeter-switch@{instance}.service"])
+
+    def test_closing_with_no_sessions_left_shows_the_sign_in_screen(self):
+        instance = self.switch_greeter()
+        self.sessions.sessions = [s for s in self.sessions.sessions if s["class"] == "greeter"
+                                  and s["id"] != "c1"]
+        self.manager.switch_done(instance, pid=500)
+        self.assertIn(("chvt", 1), self.sessions.log)
+
+    def test_closing_after_switching_leaves_the_screen_alone(self):
+        instance = self.switch_greeter()
+        self.sessions.active_id = "c3"
+        self.sessions.log.clear()
+        self.manager.switch_done(instance, pid=500)
+        self.assertEqual(self.sessions.log, [])
+
+    def test_switch_done_checks_the_instance(self):
+        with self.assertRaises(userd.UserError):
+            self.manager.switch_done("../../etc", pid=500)
+
+
+class UnlockTests(ManagerCase):
+    def test_ncryptsec_password_unlocks(self):
+        self.manager.login_ncryptsec(userd.ncryptsec_encrypt("11" * 32, "hunter2", log_n=10),
+                                     "hunter2")
+        self.assertEqual(self.manager.check_unlock(USER, "hunter2"), {"ok": True})
+        with self.assertRaisesRegex(userd.UserError, "Wrong password"):
+            self.manager.check_unlock(USER, "nope")
+
+    def test_bunker_unlocks_when_the_signer_answers(self):
+        self.manager.login_bunker("bunker://abc?relay=wss%3A%2F%2Fr")
+        self.assertEqual(self.manager.check_unlock(USER), {"ok": True})
+        self.nak.pubkey = OTHER
+        with self.assertRaisesRegex(userd.UserError, "different identity"):
+            self.manager.check_unlock(USER)
+
+    def test_guest_unlocks_without_password(self):
+        self.manager.login_nsec("11" * 32)
+        self.assertEqual(self.manager.check_unlock(USER), {"ok": True})
+
+    def test_other_users_are_refused(self):
+        with self.assertRaises(userd.UserError):
+            self.manager.check_unlock("kwak", "x")
+
+
 class PermissionTests(ManagerCase):
     def setUp(self):
         super().setUp()
         self.server = userd.Server(self.manager)
         self.manager.login_nsec("11" * 32, "hunter2")
         self.system.accounts["kwak"] = Account("kwak", 1000, "/home/kwak")
+        self.system.accounts["kwak-cards"] = Account("kwak-cards", 991, "/var/empty")
 
     def allowed(self, uid, op, **fields):
         try:
@@ -496,6 +860,22 @@ class PermissionTests(ManagerCase):
         self.assertFalse(self.allowed(30000, "login_nsec", nsec="x", password="y"))
         self.assertFalse(self.allowed(12345, "list_known"))
         self.assertTrue(self.allowed(0, "list"))
+
+    def test_card_matrix(self):
+        self.assertTrue(self.allowed(991, "card_swipe", error="card_format"))
+        self.assertFalse(self.allowed(991, "wait_card", wait=0))
+        self.assertFalse(self.allowed(991, "list_known"))
+        self.assertFalse(self.allowed(990, "card_swipe", error="card_format"))
+        self.assertFalse(self.allowed(30000, "card_swipe", error="card_format"))
+        self.assertTrue(self.allowed(990, "wait_card", wait=0))
+        self.assertTrue(self.allowed(990, "card_login", card="x"))
+
+    def test_switch_and_unlock_matrix(self):
+        self.assertTrue(self.allowed(990, "switch_done", instance="0" * 16))
+        self.assertFalse(self.allowed(30000, "switch_done", instance="0" * 16))
+        self.assertTrue(self.allowed(30000, "check_unlock", password="hunter2"))
+        self.assertFalse(self.allowed(990, "check_unlock", password="hunter2"))
+        self.assertFalse(self.allowed(1000, "check_unlock", password="x"))
 
     def test_identity_signs_out_only_itself(self):
         self.server.dispatch(30000, {"op": "signout", "username": "kwak"})

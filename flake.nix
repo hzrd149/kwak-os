@@ -5,6 +5,13 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     # Keep Hyprland's own dependency pins and matching portal together.
     hyprland.url = "github:hyprwm/Hyprland/v0.56.2";
+    # Swipe card codecs and the MSR90 reader. Only its Python library is used:
+    # its package adds the TUI's dependencies, and its NixOS module lets
+    # sessions read the reader, which kwak-cards keeps to itself.
+    nostr-swipe-cards = {
+      url = "git+https://relay.ngit.dev/npub1ye5ptcxfyyxl5vjvdjar2ua3f0hynkjzpx552mu5snj3qmx5pzjscpknpr/nostr-swipe-cards.git";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -12,6 +19,7 @@
       self,
       nixpkgs,
       hyprland,
+      nostr-swipe-cards,
     }:
     let
       system = "x86_64-linux";
@@ -42,6 +50,7 @@
         kwak-settings = final.callPackage ./apps/settings/package.nix { };
         kwak-userd = final.callPackage ./apps/userd/package.nix { };
         kwak-greeter = final.callPackage ./apps/greeter/package.nix { };
+        kwak-cards = final.callPackage ./apps/cards/package.nix { skcSource = nostr-swipe-cards; };
         calamares-nixos-extensions = final.callPackage ./packages/calamares-nixos-extensions.nix {
           calamares-nixos-extensions = prev.calamares-nixos-extensions;
           kwakSource = self.outPath;
@@ -88,6 +97,7 @@
           kwak-settings
           kwak-userd
           kwak-greeter
+          kwak-cards
           kwak-hyprland-config
           ;
         vm = self.nixosConfigurations.vm.config.system.build.vm;

@@ -8,6 +8,9 @@ key and is created on first sign-in:
 - nsec without a password: temporary, deleted when the session ends.
 - ncryptsec: saved, with the ncryptsec kept as given.
 - bunker: saved once the bunker confirms the pubkey by signing a challenge.
+- swipe card: an SKC1 card signs in like an nsec, an SKC2 card like an
+  ncryptsec, and an SKC3 card like a bunker paired with the card's client key.
+  kwak-cards reads the card and the greeter asks for any password.
 
 Saved users are removed, with all their data, when they sign out of the computer.
 """
@@ -44,12 +47,19 @@ DEFAULTS = {
     "uid_min": 30000,
     "uid_max": 39999,
     "greeter_user": "greeter",
+    "card_user": "kwak-cards",
+    "hidraw": "/sys/class/hidraw",
+    "card_ttl": 120,
+    # A greetd instance on the next free VT, for switching accounts mid-session.
+    "switch_unit": "kwak-greeter-switch",
     "relays": ["wss://purplepag.es", "wss://relay.damus.io", "wss://nos.lol"],
     "token_ttl": 60,
 }
 USERNAME = re.compile(r"^n[0-9a-f]{10}$")
 HEX_KEY = re.compile(r"^[0-9a-f]{64}$")
 AVATAR_LIMIT = 2 * 1024 * 1024
+# The MSR90 magnetic card reader, read by kwak-cards.
+CARD_READER = (0xC216, 0x0180)
 
 
 class UserError(Exception):
@@ -266,6 +276,21 @@ class Nak:
             raise UserError(f"nak failed: {detail[-1] if detail else 'unknown error'}")
         return result.stdout
 
+    @staticmethod
+    def signer_env(signer, home=None):
+        """nak's environment for a key or bunker URI.
+
+        ``home`` keeps nak's bunker client state. A ``client-key`` there, from an
+        SKC3 card, is the client key the signer was already paired with.
+        """
+        env = {"NOSTR_SECRET_KEY": signer}
+        if home is not None:
+            env["HOME"] = str(home)
+            client_key = Path(home) / "client-key"
+            if client_key.exists():
+                env["NOSTR_CLIENT_KEY"] = client_key.read_text().strip()
+        return env
+
     def generate(self):
         return self._call(["key", "generate"]).strip()
 
@@ -282,7 +307,7 @@ class Nak:
         challenge = f"kwakos-login:{socket.gethostname()}:{secrets.token_hex(16)}"
         output = self._call(
             ["event", "-k", "22242", "-c", challenge],
-            env={"NOSTR_SECRET_KEY": uri, "HOME": str(home)}, timeout=120,
+            env=self.signer_env(uri, home), timeout=120,
         )
         events = parse_events(output)
         if len(events) != 1 or events[0].get("content") != challenge:
@@ -304,14 +329,99 @@ class Nak:
 
     def publish(self, kind, content, tags, relays, signer, home=None):
         event = {"kind": kind, "content": content, "tags": tags}
-        env = {"NOSTR_SECRET_KEY": signer}
-        if home is not None:
-            env["HOME"] = str(home)
-        output = self._call(["event", *relays], stdin=json.dumps(event), env=env, timeout=120)
+        output = self._call(["event", *relays], stdin=json.dumps(event),
+                            env=self.signer_env(signer, home), timeout=120)
         events = parse_events(output)
         if len(events) != 1 or events[0].get("kind") != kind:
             raise UserError("nak did not return the published event.")
         return events[0]
+
+
+def usb_ids(path):
+    """The (vendor, product) of the USB device above a sysfs path, if any."""
+    for parent in (path, *path.parents):
+        try:
+            return (int((parent / "idVendor").read_text(), 16),
+                    int((parent / "idProduct").read_text(), 16))
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError):
+            return None
+    return None
+
+
+def card_reader_present(hidraw):
+    """Whether a card reader is plugged in, without opening it."""
+    try:
+        entries = list(Path(hidraw).iterdir())
+    except OSError:
+        return False
+    return any(usb_ids((entry / "device").resolve()) == CARD_READER for entry in entries)
+
+
+class Sessions:
+    """Sessions on seat0, through loginctl."""
+
+    PROPERTIES = ("Id", "Name", "Class", "State", "LockedHint", "VTNr", "Seat")
+
+    def __init__(self, run=subprocess.run, proc="/proc"):
+        self.run = run
+        self.proc = Path(proc)
+
+    def _loginctl(self, *args):
+        result = self.run(["loginctl", "--no-pager", *args], capture_output=True, text=True,
+                          check=False)
+        return result.stdout if result.returncode == 0 else ""
+
+    def show(self, session_id):
+        output = self._loginctl("show-session", session_id,
+                                *(f"--property={name}" for name in self.PROPERTIES))
+        values = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
+        if not values.get("Id"):
+            return None
+        return {
+            "id": values["Id"], "user": values.get("Name", ""),
+            "class": values.get("Class", ""), "state": values.get("State", ""),
+            "locked": values.get("LockedHint") == "yes", "seat": values.get("Seat", ""),
+            "vt": int(values.get("VTNr") or 0),
+        }
+
+    def all(self):
+        ids = [line.split()[0] for line in self._loginctl("list-sessions", "--no-legend")
+               .splitlines() if line.strip()]
+        sessions = (self.show(session_id) for session_id in ids)
+        return [session for session in sessions if session and session["seat"] == "seat0"
+                and session["state"] in ("active", "online")]
+
+    def active(self):
+        session_id = self._loginctl("show-seat", "seat0", "--property=ActiveSession",
+                                    "--value").strip()
+        return self.show(session_id) if session_id else None
+
+    def of_user(self, username):
+        return next((session for session in self.all()
+                     if session["user"] == username and session["class"] == "user"), None)
+
+    def of_pid(self, pid):
+        """The session of a process, from its cgroup."""
+        try:
+            cgroup = (self.proc / str(int(pid)) / "cgroup").read_text()
+        except (OSError, ValueError):
+            return None
+        match = re.search(r"/session-([^/.]+)\.scope", cgroup)
+        return self.show(match.group(1)) if match else None
+
+    def activate(self, session_id):
+        self._loginctl("activate", session_id)
+
+    def lock(self, session_id):
+        self._loginctl("lock-session", session_id)
+
+    def unlock(self, session_id):
+        self._loginctl("unlock-session", session_id)
+
+    def chvt(self, vt):
+        self.run(["chvt", str(vt)], capture_output=True, text=True, check=False)
 
 
 # --- The user manager --------------------------------------------------------
@@ -319,10 +429,11 @@ class Nak:
 
 class UserManager:
     def __init__(self, config=None, run=subprocess.run, nak=None, clock=time.monotonic,
-                 users=pwd, executable=None):
+                 users=pwd, executable=None, sessions=None):
         self.config = config or load_config()
         self.run = run
         self.nak = nak or Nak(run)
+        self.sessions = sessions or Sessions(run)
         self.clock = clock
         self.users = users
         self.executable = (
@@ -331,6 +442,16 @@ class UserManager:
         self.state = Path(self.config["state_dir"])
         self.tokens = {}
         self.lock = threading.RLock()
+        # Card swipes: the latest public summary, and its secret by opaque id.
+        self.cards = threading.Condition(threading.Lock())
+        self.card_seq = 0
+        self.card_event = None
+        self.card_at = None
+        self.swipes = {}
+        # Account switching: when a switch greeter was started, and the session
+        # each one was started from.
+        self.switch_started = None
+        self.switch_from = {}
 
     # Registry ---------------------------------------------------------------
 
@@ -374,14 +495,22 @@ class UserManager:
         pubkey = self.nak.public_key(secret)
         return self._login(pubkey, "ncryptsec", {"ncryptsec": ncryptsec.strip()})
 
-    def login_bunker(self, uri, username=None):
-        """Confirm the bunker's pubkey; nak's client state is kept so the signer remembers us."""
+    def login_bunker(self, uri, username=None, client_key=None):
+        """Confirm the bunker's pubkey; nak's client state is kept so the signer remembers us.
+
+        ``client_key`` is the paired client key from an SKC3 card. It is kept with
+        nak's client state, so later sign-ins and signing use it too.
+        """
         uri = uri.strip()
         if username:
             home = self.key_dir(username) / "nak"
         else:
             home = self.state / "bunker-clients" / secrets.token_hex(8)
         home.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if client_key is not None:
+            if not HEX_KEY.match(client_key):
+                raise UserError("The card's client key is invalid.")
+            write_private(home / "client-key", client_key + "\n")
         try:
             pubkey = self.nak.bunker_pubkey(uri, home)
             if username and username_for(pubkey) != username:
@@ -419,8 +548,7 @@ class UserManager:
         if entry is None:
             raise UserError("Unknown identity.")
         if entry.get("temporary"):
-            return {"username": username, "token": self.issue(username), "temporary": True,
-                    "name": entry.get("name") or username}
+            return self._grant(username, True, entry.get("name") or username)
         material = json.loads((self.key_dir(username) / "key.json").read_text())
         if entry["method"] == "bunker":
             return self.login_bunker(material["bunker"], username)
@@ -462,8 +590,7 @@ class UserManager:
                 write_private(keys / "key.json", json.dumps(material) + "\n")
                 entry.update(method=method, temporary=False)
             temporary = entry["temporary"]
-        return {"username": username, "token": self.issue(username), "temporary": temporary,
-                "name": entry.get("name") or username}
+        return self._grant(username, temporary, entry.get("name") or username)
 
     # Provisioning ------------------------------------------------------------
 
@@ -569,6 +696,211 @@ class UserManager:
                 if result.returncode:
                     print(f"kwak-userd: hook {hook.name} failed for {username}: "
                           f"{result.stderr.strip()}", file=sys.stderr)
+
+    # Card swipes --------------------------------------------------------------
+
+    def card_swipe(self, event):
+        """A swipe from kwak-cards.
+
+        At a sign-in screen, the greeter on screen gets it. During a session, the
+        session is locked and a switch greeter opens on a new VT to handle it; an
+        SKC1 card of an account that is already signed in switches straight back
+        to that account's session instead.
+
+        The secret stays here under an opaque id. The greeter only gets a summary
+        and signs in with ``card_login``.
+        """
+        active = self.sessions.active()
+        if active is None:
+            return {"delivered": False}
+        summary, secret = self._card_summary(event)
+        if active["class"] == "greeter":
+            self._store_swipe(summary, secret)
+            return {"delivered": True}
+        if active["class"] != "user" or "error" in summary:
+            return {"delivered": False}
+        if summary.get("known"):
+            session = self.sessions.of_user(summary["username"])
+            if session is not None:
+                if session["id"] != active["id"]:
+                    self._lock(active)
+                self._switch_to(session)
+                return {"delivered": True}
+        self._store_swipe(summary, secret)
+        self._lock(active)
+        self._start_switch_greeter(active)
+        return {"delivered": True}
+
+    def _store_swipe(self, summary, secret):
+        with self.cards:
+            self.card_seq += 1
+            summary["seq"] = self.card_seq
+            self.swipes = {}
+            if secret is not None:
+                self.swipes[summary["id"]] = dict(
+                    secret, expires=self.clock() + self.config["card_ttl"])
+            self.card_event = summary
+            self.card_at = self.clock()
+            self.cards.notify_all()
+
+    def _fresh(self, card):
+        """Whether a swipe can still be used: unexpired, or a just-reported error."""
+        if "id" in card:
+            swipe = self.swipes.get(card["id"])
+            return swipe is not None and swipe["expires"] > self.clock()
+        return self.clock() - self.card_at < 5
+
+    def _card_summary(self, event):
+        card_id = secrets.token_urlsafe(16)
+        try:
+            if event.get("format") == "SKC1":
+                secret = secret_hex(event["secret_key"])
+                username = username_for(self.nak.public_key(secret))
+                entry = self.entry(username)
+                return ({"id": card_id, "format": "SKC1", "username": username,
+                         "known": entry is not None,
+                         "name": (entry or {}).get("name") or username,
+                         "password": "none" if entry else "optional"},
+                        {"format": "SKC1", "secret": secret})
+            if event.get("format") == "SKC3":
+                uri, client_key = event["bunker"].strip(), event["client_key"]
+                if not uri.startswith("bunker://") or not HEX_KEY.match(client_key):
+                    raise UserError("Not a bunker connection.")
+                # Whose card it is is only known once the signer answers.
+                return ({"id": card_id, "format": "SKC3", "password": "none", "signer": True},
+                        {"format": "SKC3", "bunker": uri, "client_key": client_key})
+            if event.get("format") == "SKC2":
+                ncryptsec = event["ncryptsec"].strip()
+                if not ncryptsec.startswith("ncryptsec1"):
+                    raise UserError("Not an ncryptsec.")
+                return ({"id": card_id, "format": "SKC2", "password": "required"},
+                        {"format": "SKC2", "ncryptsec": ncryptsec})
+        except (UserError, KeyError, AttributeError):
+            pass
+        return {"error": "card_format"}, None
+
+    def wait_card(self, after=None, wait=30, pid=None):
+        """Wait for a swipe newer than ``after``; also says if a reader is plugged in.
+
+        Only the greeter on screen gets swipes. ``after=0`` also returns a swipe
+        made just before the greeter started, such as one that opened it.
+        """
+        wait = max(0, min(float(wait), 30))
+        with self.cards:
+            if after is None:
+                after = self.card_seq
+            self.cards.wait_for(lambda: self.card_seq > after, wait)
+            card = self.card_event if self.card_seq > after else None
+            if card is not None and not self._fresh(card):
+                card = None
+            seq = self.card_seq
+        if pid is not None and not self._on_screen(pid):
+            card = None
+        elif card is not None:
+            self.switch_started = None
+        return {"reader": card_reader_present(self.config["hidraw"]), "card": card,
+                "seq": seq}
+
+    def card_login(self, card, password=None):
+        """Sign in with a swiped card, like a pasted nsec or ncryptsec."""
+        with self.cards:
+            swipe = self.swipes.get(card)
+            if swipe is not None and swipe["expires"] <= self.clock():
+                del self.swipes[card]
+                swipe = None
+        if swipe is None:
+            raise UserError("The card swipe has expired. Swipe the card again.")
+        if swipe["format"] == "SKC1":
+            result = self.login_nsec(swipe["secret"], password)
+        elif swipe["format"] == "SKC3":
+            result = self.login_bunker(swipe["bunker"], client_key=swipe["client_key"])
+        else:
+            result = self.login_ncryptsec(swipe["ncryptsec"], password or "")
+        # A wrong password keeps the swipe, so the person can try again.
+        with self.cards:
+            self.swipes.pop(card, None)
+        return result
+
+    # Account switching ---------------------------------------------------------
+
+    def _on_screen(self, pid):
+        """Whether the process ``pid`` belongs to the session on screen."""
+        session, active = self.sessions.of_pid(pid), self.sessions.active()
+        return bool(session and active and session["id"] == active["id"])
+
+    def _lock(self, session):
+        """Lock a session, except a guest's: anyone could open it from the list."""
+        entry = self.entry(session["user"])
+        if not (entry and entry.get("temporary")):
+            self.sessions.lock(session["id"])
+
+    def _switch_to(self, session):
+        self.sessions.activate(session["id"])
+        self.sessions.unlock(session["id"])
+
+    def _start_switch_greeter(self, previous):
+        with self.cards:
+            # One greeter at a time: a starting one picks up the latest swipe.
+            if self.switch_started is not None and self.clock() - self.switch_started < 15:
+                return
+            self.switch_started = self.clock()
+        instance = secrets.token_hex(8)
+        self.switch_from[instance] = previous["id"]
+        self._command(["systemctl", "start", "--no-block",
+                       f"{self.config['switch_unit']}@{instance}.service"])
+
+    def switch_done(self, instance, pid=None):
+        """Close a switch greeter and, if it is on screen, return to a session.
+
+        That is the session it was opened from (still locked), another session, or
+        the sign-in screen on VT 1.
+        """
+        if not re.fullmatch(r"[0-9a-f]{16}", str(instance)):
+            raise UserError("Unknown switch greeter.")
+        previous = self.switch_from.pop(instance, None)
+        caller = self.sessions.of_pid(pid) if pid is not None else None
+        if pid is None or self._on_screen(pid):
+            sessions = [session for session in self.sessions.all()
+                        if not caller or session["id"] != caller["id"]]
+            target = (
+                next((session for session in sessions if session["id"] == previous), None)
+                or next((session for session in sessions if session["class"] == "user"), None)
+                or next((session for session in sessions if session["class"] == "greeter"),
+                        None)
+            )
+            if target is not None:
+                self.sessions.activate(target["id"])
+            else:
+                self.sessions.chvt(1)
+        self._command(["systemctl", "stop", "--no-block",
+                       f"{self.config['switch_unit']}@{instance}.service"])
+        return {"closed": True}
+
+    def check_unlock(self, username, password=None):
+        """Check an identity's own way in, to unlock its locked session."""
+        entry = self.managed(username)
+        if entry is None:
+            raise UserError("Not a Nostr identity.")
+        if entry.get("temporary"):
+            return {"ok": True}
+        material = json.loads((self.key_dir(username) / "key.json").read_text())
+        if entry["method"] == "bunker":
+            pubkey = self.nak.bunker_pubkey(material["bunker"], self.key_dir(username) / "nak")
+        else:
+            pubkey = self.nak.public_key(ncryptsec_decrypt(material["ncryptsec"], password or ""))
+        if pubkey != entry["pubkey"]:
+            raise UserError("That key belongs to a different identity.")
+        return {"ok": True}
+
+    def _grant(self, username, temporary, name):
+        """A login token, or, if the account is already signed in, a switch to it."""
+        session = self.sessions.of_user(username)
+        if session is not None:
+            self._switch_to(session)
+            return {"username": username, "switched": True, "temporary": temporary,
+                    "name": name}
+        return {"username": username, "token": self.issue(username), "temporary": temporary,
+                "name": name}
 
     # Tokens and sessions -----------------------------------------------------
 
@@ -788,15 +1120,18 @@ class UserManager:
 # --- Socket server -----------------------------------------------------------
 
 GREETER_OPS = {"list_known", "login_nsec", "login_ncryptsec", "login_bunker",
-               "create_identity", "unlock"}
+               "create_identity", "unlock", "wait_card", "card_login", "switch_done"}
+CARD_OPS = {"card_swipe"}
 ROOT_OPS = GREETER_OPS | {"redeem", "close_session", "remove", "list"}
 
 
-def peer_uid(connection):
+def peer_credentials(connection):
+    """The caller's (pid, uid)."""
     credentials = connection.getsockopt(
         socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")
     )
-    return struct.unpack("3i", credentials)[1]
+    pid, uid, _gid = struct.unpack("3i", credentials)
+    return pid, uid
 
 
 class Server:
@@ -812,17 +1147,21 @@ class Server:
             return "unknown", None
         if name == self.manager.config["greeter_user"]:
             return "greeter", name
+        if name == self.manager.config["card_user"]:
+            return "card", name
         if self.manager.managed(name) is not None:
             return "identity", name
         return "unknown", name
 
-    def dispatch(self, uid, request):
+    def dispatch(self, uid, request, pid=None):
         op = request.get("op")
         role, name = self.role(uid)
         allowed = (
             (role == "root" and op in ROOT_OPS)
             or (role == "greeter" and op in GREETER_OPS)
-            or (role == "identity" and op in {"signout", "account_settings", "publish_settings"})
+            or (role == "card" and op in CARD_OPS)
+            or (role == "identity" and op in {"signout", "account_settings", "publish_settings",
+                                              "check_unlock"})
         )
         if not allowed:
             raise UserError("Permission denied.")
@@ -841,19 +1180,24 @@ class Server:
             "signout": lambda: m.request_signout(name),
             "account_settings": lambda: m.account_settings(name),
             "publish_settings": lambda: m.publish_settings(name, r["section"], r["value"], r.get("password")),
+            "wait_card": lambda: m.wait_card(r.get("after"), r.get("wait", 30), pid),
+            "switch_done": lambda: m.switch_done(r["instance"], pid),
+            "check_unlock": lambda: m.check_unlock(name, r.get("password")),
+            "card_login": lambda: m.card_login(r["card"], r.get("password")),
+            "card_swipe": lambda: m.card_swipe(r),
         }
         return handlers[op]()
 
     def handle(self, connection):
         with connection:
             try:
-                uid = peer_uid(connection)
+                pid, uid = peer_credentials(connection)
                 stream = connection.makefile("rwb")
                 line = stream.readline(1 << 16)
                 request = json.loads(line)
                 if not isinstance(request, dict):
                     raise ValueError
-                response = {"ok": True, "result": self.dispatch(uid, request)}
+                response = {"ok": True, "result": self.dispatch(uid, request, pid)}
             except UserError as error:
                 response = {"ok": False, "error": str(error)}
             except (KeyError, ValueError, TypeError):
@@ -916,6 +1260,10 @@ def main(argv=None):
             if not token or not USERNAME.match(os.environ.get("PAM_USER", "")):
                 return 1
             request("redeem", username=os.environ["PAM_USER"], token=token, timeout=10)
+        elif command == "pam-unlock":
+            # hyprlock's PAM stack runs this as the locked session's user.
+            password = sys.stdin.buffer.read(4096).split(b"\0")[0].decode()
+            request("check_unlock", password=password, timeout=150)
         elif command == "pam-close":
             if USERNAME.match(os.environ.get("PAM_USER", "")):
                 request("close_session", username=os.environ["PAM_USER"], timeout=10)

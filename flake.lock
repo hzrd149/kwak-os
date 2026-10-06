@@ -401,6 +401,26 @@
         "type": "github"
       }
     },
+    "nostr-swipe-cards": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1791320678,
+        "narHash": "sha256-Hxgl9a5fi+QbuwF/BqQ3HGtvFak0Atqgfah9oMVMm4s=",
+        "ref": "refs/heads/master",
+        "rev": "939c65f05d131028218c964e193d7197be7f0411",
+        "revCount": 19,
+        "type": "git",
+        "url": "https://relay.ngit.dev/npub1ye5ptcxfyyxl5vjvdjar2ua3f0hynkjzpx552mu5snj3qmx5pzjscpknpr/nostr-swipe-cards.git"
+      },
+      "original": {
+        "type": "git",
+        "url": "https://relay.ngit.dev/npub1ye5ptcxfyyxl5vjvdjar2ua3f0hynkjzpx552mu5snj3qmx5pzjscpknpr/nostr-swipe-cards.git"
+      }
+    },
     "pre-commit-hooks": {
       "inputs": {
         "flake-compat": "flake-compat",
@@ -426,7 +446,8 @@
     "root": {
       "inputs": {
         "hyprland": "hyprland",
-        "nixpkgs": "nixpkgs_2"
+        "nixpkgs": "nixpkgs_2",
+        "nostr-swipe-cards": "nostr-swipe-cards"
       }
     },
     "systems": {

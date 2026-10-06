@@ -34,6 +34,67 @@ The rules for keys that are already on the computer:
 Plaintext secret keys are never written to disk. Passwords and keys are passed to
 `nak` on stdin or in its environment, never as command-line arguments.
 
+## Swipe cards
+
+With an MSR90 magnetic card reader plugged in, you can also sign in by swiping a
+[Nostr swipe card](https://relay.ngit.dev/npub1ye5ptcxfyyxl5vjvdjar2ua3f0hynkjzpx552mu5snj3qmx5pzjscpknpr/nostr-swipe-cards.git)
+at the sign-in screen. The list then says **Or swipe your card to sign in.** A card
+works like a pasted key:
+
+| Card | Swiping it |
+| --- | --- |
+| **SKC1** (a plain secret key) of an account on the computer | Signs in straight away. A saved account keeps its stored key and password. |
+| **SKC1** not on the computer yet | Asks for an optional password, like **New account**. With one, the key is kept as an ncryptsec; without one, the account is a guest. |
+| **SKC2** (an ncryptsec) | Asks for the card's password. The ncryptsec is kept, so later the password alone signs in, from the list. |
+| **SKC3** (an nbunksec bunker connection) | Shows the loading screen while the card's remote signer signs the login challenge, like **Remote signer**. The signer must already have paired the card's client key (the `skc tui` write flow pairs it). The bunker connection and client key are kept, so the account can then be chosen from the list. |
+
+- **Swiping during a session switches accounts** (see below). Swipes are never
+  typed into a window, because the reader's keyboard output stays switched off
+  while the reader service runs.
+- **An SKC1 card is a bearer key.** Anyone who swipes it can sign in as you, so
+  keep it like a house key. An SKC2 card also needs its password. An SKC3 card can
+  ask your signer to sign for you, so revoke its client key in the signer if you
+  lose it.
+- **Unreadable or unknown cards** say "That card couldn't be read."
+
+When the reader is plugged in, udev starts `kwak-card-reader@hidrawN.service`. It
+runs `kwak-cards` as the `kwak-cards` system user, which is the only user that can
+read the reader. It stops when the reader is unplugged. To use `skc` from a session
+(for example to write cards), stop the service first; to turn card sign-in off, set
+`kwak.nostrUsers.cards.enable = false`.
+
+kwak-userd keeps a swipe for 2 minutes and hands it only to the sign-in screen that
+is on screen. The greeter never sees the card's key: it gets a summary and an opaque
+id, and signs in with `card_login`.
+
+## Switching accounts
+
+Several people can be signed in at once, each in their own session on its own
+virtual terminal. Swiping a card during a session switches to that card's account:
+
+| The card's account | What happens |
+| --- | --- |
+| Already signed in (an SKC1 card) | The current session locks, and the screen switches to that account's session and unlocks it. Swiping your own card unlocks your locked session. |
+| Anything else | The current session locks, and a **Switch account** sign-in screen opens on the next free virtual terminal to handle the swipe (asking for a password, or waiting for the signer). The new session then runs there. Esc on that screen goes back to the locked session. |
+
+Signing in to an account that already has a session, from any sign-in screen,
+switches to that session instead of starting a second one.
+
+**The lock screen** is hyprlock, run by hypridle when a session is locked (and
+before suspend). Unlock it with:
+- **A password account:** its password.
+- **A remote signer account:** press Enter with no password and approve on the
+  signer.
+- **Any card account:** a swipe of its card.
+- **A local account** such as `kwak`: its Unix password.
+
+Guest sessions are not locked when switching away, since a guest has no password
+and anyone could open it from the account list anyway.
+
+When a switched-to session logs out, its sign-in screen closes and the screen goes
+back to another session (locked), or to the sign-in screen on the first virtual
+terminal.
+
 ## Signing out
 
 Logging out of a saved identity keeps the user and their home folder. To remove it,
@@ -55,10 +116,17 @@ crashes first, `kwak-userd-cleanup.service` removes them at the next boot.
   from the caller's Unix UID:
   - The `greeter` user may sign in or create identities.
   - Root may redeem login tokens and remove users.
-  - A Nostr user may only sign themselves out.
+  - A Nostr user may only sign themselves out, and check their own password or
+    signer to unlock their locked session (hyprlock's PAM stack runs
+    `kwak-userd pam-unlock`).
+  - The `kwak-cards` reader service may only pass on card swipes.
 - **Sign-in** gives the greeter a single-use login token, valid for 60 seconds. The
   greeter gives the token to greetd as the password, and `pam_exec` checks it with
   `kwak-userd`. Local accounts fall through to the normal password check.
+- **Switching** uses logind: kwak-userd locks, activates, and unlocks sessions with
+  `loginctl`, and opens a switch greeter as `kwak-greeter-switch@ID.service`, a
+  greetd instance on the next free VT whose greeter runs `kwak-greeter --switch ID`.
+  Only the greeter whose session is on screen gets swipes.
 - **Accounts** get UIDs from 30000–39999, the `nostr` group, and a locked Unix
   password, so they cannot log in over SSH.
 - **The registry** in `/var/lib/kwak-userd/users.json` binds each username to its
@@ -101,6 +169,8 @@ Each app is its own flake under `apps/`:
 ```sh
 nix build ./apps/userd     # runs the user manager's unit tests
 nix build ./apps/greeter   # runs the greetd protocol and headless UI tests
+nix build ./apps/cards     # runs the card reader tests and skc_cards' own tests
+nix flake update nostr-swipe-cards   # update the swipe card library
 nix develop ./apps/userd   # Python with pynacl, plus nak
 ```
 

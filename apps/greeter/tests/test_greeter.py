@@ -6,6 +6,7 @@ import socket
 import struct
 import sys
 import tempfile
+import queue
 import threading
 import unittest
 
@@ -117,9 +118,27 @@ class FakeUserd:
     def __init__(self):
         self.calls = []
         self.signer = threading.Event()
+        self.reader = False
+        self.swipes = queue.Queue()
 
     def __call__(self, op, timeout=180, **fields):
+        if op == "wait_card":
+            # Not recorded: the greeter polls this all the time.
+            try:
+                card = self.swipes.get(timeout=0.2)
+            except queue.Empty:
+                card = None
+            return {"reader": self.reader, "card": card, "seq": 0}
         self.calls.append((op, fields))
+        if op == "switch_done":
+            return {"closed": True}
+        if getattr(self, "switched", False) and op in ("unlock", "card_login"):
+            return {"username": fields.get("username", "n3bf0c63fcb"), "switched": True,
+                    "name": "fiatjaf"}
+        if op == "card_login":
+            if fields.get("password") == "wrong":
+                raise client.UserError("Wrong password.")
+            return {"username": "ncard000000", "token": "t", "name": "Card"}
         if getattr(self, "fail_unlock", False) and op == "unlock":
             raise client.UserError("Wrong password.")
         if op == "list_known":
@@ -236,12 +255,183 @@ class GreeterAppTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("escape")
             self.assertEqual(pilot.app.page, "people")
 
+    async def wait_for(self, pilot, condition):
+        for _ in range(100):
+            if condition():
+                return
+            await pilot.pause(0.02)
+        self.fail("timed out")
+
+    async def test_swipe_hint_shows_only_with_a_reader(self):
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.settle(pilot)
+            hint = pilot.app.query_one("#swipe")
+            self.assertFalse(hint.has_class("shown"))
+            self.userd.reader = True
+            await self.wait_for(pilot, lambda: hint.has_class("shown"))
+
+    async def test_known_card_signs_in_on_swipe(self):
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.settle(pilot)
+            self.userd.swipes.put({"id": "c1", "format": "SKC1", "username": "ncard000000",
+                                   "name": "Card", "known": True, "password": "none"})
+            await self.wait_for(pilot, lambda: self.greetd.logins)
+        self.assertEqual(self.userd.calls[-1], ("card_login", {"card": "c1"}))
+        self.assertEqual(self.greetd.logins, [("ncard000000", "t")])
+
+    async def test_bunker_card_waits_for_its_signer(self):
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.settle(pilot)
+            pilot.app.card_polled({"card": {"id": "c7", "format": "SKC3", "password": "none",
+                                            "signer": True}})
+            self.assertEqual(pilot.app.page, "waiting")
+            await self.settle(pilot)
+        self.assertEqual(self.userd.calls[-1], ("card_login", {"card": "c7"}))
+        self.assertEqual(self.greetd.logins, [("ncard000000", "t")])
+
+    async def test_new_card_password_is_optional(self):
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.settle(pilot)
+            pilot.app.card_polled({"card": {"id": "c2", "format": "SKC1", "known": False,
+                                            "username": "ncard000000", "password": "optional"}})
+            await pilot.pause()
+            self.assertEqual((pilot.app.page, pilot.app.focused.id), ("card", "card-password"))
+            self.assertTrue(pilot.app.field("card-confirm").display)
+            await pilot.press(*"secret", "tab", *"secret", "enter")
+            await self.settle(pilot)
+        self.assertEqual(self.userd.calls[-1],
+                         ("card_login", {"card": "c2", "password": "secret"}))
+        self.assertEqual(self.greetd.logins, [("ncard000000", "t")])
+
+    async def test_new_card_without_password_is_a_guest(self):
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.settle(pilot)
+            pilot.app.card_polled({"card": {"id": "c3", "format": "SKC1", "known": False,
+                                            "username": "ncard000000", "password": "optional"}})
+            await pilot.pause()
+            await pilot.click("#card-go")
+            await self.settle(pilot)
+        self.assertEqual(self.userd.calls[-1], ("card_login", {"card": "c3", "password": ""}))
+
+    async def test_encrypted_card_retries_its_password(self):
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.settle(pilot)
+            pilot.app.card_polled({"card": {"id": "c4", "format": "SKC2",
+                                            "password": "required"}})
+            await pilot.pause()
+            self.assertFalse(pilot.app.field("card-confirm").display)
+            await pilot.press(*"wrong", "enter")
+            await self.settle(pilot)
+            self.assertEqual((pilot.app.page, pilot.app.focused.id), ("card", "card-password"))
+            self.assertIn("Wrong password", str(pilot.app.query_one("#status").render()))
+            pilot.app.field("card-password").value = "right"
+            await pilot.press("enter")
+            await self.settle(pilot)
+        self.assertEqual(self.userd.calls[-1], ("card_login", {"card": "c4", "password": "right"}))
+        self.assertEqual(self.greetd.logins, [("ncard000000", "t")])
+
+    async def test_swipe_is_ignored_while_waiting_for_a_signer(self):
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.settle(pilot)
+            await pilot.press("down", "enter")
+            await pilot.pause()
+            pilot.app.card_polled({"card": {"id": "c5", "format": "SKC2",
+                                            "password": "required"}})
+            await pilot.pause()
+            self.assertEqual(pilot.app.page, "waiting")
+            self.assertIn("Finish or cancel", str(pilot.app.query_one("#status").render()))
+            self.userd.signer.set()
+            await self.settle(pilot)
+        self.assertNotIn("card_login", self.ops())
+
+    async def test_unreadable_card_says_so(self):
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.settle(pilot)
+            pilot.app.card_polled({"card": {"error": "card_format"}})
+            await pilot.pause()
+            self.assertEqual(pilot.app.page, "people")
+            self.assertIn("couldn't be read", str(pilot.app.query_one("#status").render()))
+
+    async def test_card_page_fits_a_small_terminal(self):
+        async with self.app.run_test(size=(32, 12)) as pilot:
+            await self.settle(pilot)
+            pilot.app.card_polled({"card": {"id": "c6", "format": "SKC1", "known": False,
+                                            "username": "ncard000000", "password": "optional"}})
+            await pilot.pause()
+            panel = pilot.app.query_one("#panel").region
+            self.assertLessEqual(panel.right, 32)
+            self.assertLessEqual(panel.bottom, 12)
+            self.assertEqual(pilot.app.focused.id, "card-password")
+
+    async def test_already_signed_in_account_is_switched_to(self):
+        self.userd.switched = True
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.settle(pilot)
+            await pilot.press("down", "down", "enter")
+            await self.settle(pilot)
+            self.assertEqual(pilot.app.page, "people")
+            self.assertIn("Switched to fiatjaf", str(pilot.app.query_one("#status").render()))
+        self.assertEqual(self.greetd.logins, [])
+
     async def test_panel_fits_a_small_terminal(self):
         async with self.app.run_test(size=(32, 12)) as pilot:
             await self.settle(pilot)
             panel = pilot.app.query_one("#panel").region
             self.assertLessEqual(panel.right, 32)
             self.assertLessEqual(panel.bottom, 12)
+
+
+class SwitchGreeterTests(unittest.IsolatedAsyncioTestCase):
+    """A greeter opened by a swipe during a session, on its own VT."""
+
+    INSTANCE = "ab" * 8
+
+    def setUp(self):
+        self.userd = FakeUserd()
+        self.greetd = RecordingGreetd()
+        self.app = greeter.GreeterApp(self.userd, self.greetd, ["true"], switch=self.INSTANCE)
+
+    async def wait_for(self, pilot, condition):
+        for _ in range(100):
+            if condition():
+                return
+            await pilot.pause(0.02)
+        self.fail("timed out")
+
+    def closed(self):
+        return ("switch_done", {"instance": self.INSTANCE}) in self.userd.calls
+
+    async def test_handles_the_swipe_that_opened_it(self):
+        self.userd.swipes.put({"id": "c1", "format": "SKC2", "password": "required"})
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.wait_for(pilot, lambda: pilot.app.page == "card")
+            await pilot.press(*"right", "enter")
+            await self.wait_for(pilot, lambda: self.greetd.logins)
+        self.assertFalse(self.closed())
+
+    async def test_closes_itself_without_a_swipe(self):
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.wait_for(pilot, self.closed)
+
+    async def test_escape_goes_back_to_the_locked_session(self):
+        self.userd.swipes.put({"id": "c1", "format": "SKC2", "password": "required"})
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.wait_for(pilot, lambda: pilot.app.page == "card")
+            await pilot.press("escape")
+            self.assertEqual(pilot.app.page, "people")
+            self.assertEqual(pilot.app.query_one("#panel").border_title, "SWITCH ACCOUNT")
+            self.assertFalse(self.closed())
+            await pilot.press("escape")
+            await self.wait_for(pilot, self.closed)
+
+    async def test_switching_to_a_signed_in_account_closes_it(self):
+        self.userd.switched = True
+        self.userd.swipes.put({"id": "c1", "format": "SKC2", "password": "required"})
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.wait_for(pilot, lambda: pilot.app.page == "card")
+            await pilot.press(*"right", "enter")
+            await self.wait_for(pilot, self.closed)
+        self.assertEqual(self.greetd.logins, [])
 
 
 class SignOutAppTests(unittest.IsolatedAsyncioTestCase):

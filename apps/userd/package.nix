@@ -8,6 +8,7 @@
   systemd,
   procps,
   findutils,
+  kbd,
 }:
 let
   python = python3.withPackages (ps: [ ps.pynacl ]);
@@ -41,6 +42,7 @@ stdenvNoCC.mkDerivation {
           systemd
           procps
           findutils
+          kbd
         ]
       }
     runHook postInstall

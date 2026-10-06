@@ -8,12 +8,15 @@ import shlex
 import socket
 import struct
 import sys
+import threading
 
 from rich.text import Text
 from textual import work
 from textual.app import App
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.css.query import NoMatches
+from textual.message import Message
 from textual.theme import Theme
 from textual.widgets import (Button, ContentSwitcher, Footer, Input, LoadingIndicator,
                              OptionList, Static)
@@ -113,6 +116,8 @@ Button { border: none; height: 1; min-width: 10; margin-left: 2; }
 #status { margin-top: 1; color: $foreground 70%; display: none; }
 #status.shown { display: block; }
 #status.error { color: $error; }
+#swipe { margin-top: 1; color: $primary; display: none; }
+#swipe.shown { display: block; }
 """
 
 
@@ -124,16 +129,25 @@ def buttons(primary=None, primary_id=None, back="Back", variant="primary"):
     return Horizontal(*row, classes="buttons")
 
 
+class CardPolled(Message):
+    """A wait_card result, posted from the card watcher thread."""
+
+    def __init__(self, result, first=False):
+        super().__init__()
+        self.result = result
+        self.first = first
+
+
 class GreeterApp(App):
     """Sign-in screen: accounts on this computer, then other ways to sign in."""
 
     TITLES = {
         "people": "KWAKOS", "unlock": "UNLOCK", "add": "SIGN IN", "create": "NEW ACCOUNT",
         "key": "EXISTING ACCOUNT", "bunker": "REMOTE SIGNER", "local": "LINUX USER",
-        "waiting": "REMOTE SIGNER", "welcome": "WELCOME",
+        "waiting": "REMOTE SIGNER", "welcome": "WELCOME", "card": "SWIPE CARD",
     }
     BACK = {"unlock": "people", "add": "people", "create": "add", "key": "add",
-            "bunker": "add", "local": "add"}
+            "bunker": "add", "local": "add", "card": "people"}
     ADD = (
         ("create", "New account", "Generate a new Nostr key on this computer."),
         ("key", "Existing account", "Sign in with your nsec or ncryptsec."),
@@ -146,22 +160,31 @@ class GreeterApp(App):
     ENABLE_COMMAND_PALETTE = False
     BINDINGS = [Binding("escape", "back", "Back")]
 
-    def __init__(self, request=client.request, greetd=None, command=None):
+    def __init__(self, request=client.request, greetd=None, command=None, switch=None):
         super().__init__()
         self.request = request
+        # A switch greeter's instance: it was opened by a swipe during a session,
+        # on its own VT, and closes once the swipe is handled or cancelled.
+        self.switch = switch
         self.greetd = greetd or Greetd()
         self.command = command or session_command()
         self.busy = False
         self.selected = None
         self.people = []
         self.waiting_back = "people"
+        self.card = None
+        self.stopping = threading.Event()
 
     def compose(self):
         with VerticalScroll(id="panel"):
             with ContentSwitcher(initial="people", id="pages"):
                 with Vertical(id="people"):
-                    yield Static("Choose who is signing in.", classes="hint")
+                    yield Static(
+                        "Choose an account or swipe a card. Esc goes back to the locked "
+                        "session." if self.switch else "Choose who is signing in.",
+                        classes="hint")
                     yield OptionList(id="people-list")
+                    yield Static("▮ Or swipe your card to sign in.", id="swipe")
                 with Vertical(id="unlock"):
                     yield Static(id="unlock-name", classes="title")
                     yield Static("Enter this account's password to decrypt its key.",
@@ -208,6 +231,13 @@ class GreeterApp(App):
                     yield Static("Connecting to your signer. Approve the login request there.",
                                  classes="hint")
                     yield buttons(back="Cancel")
+                with Vertical(id="card"):
+                    yield Static(id="card-name", classes="title")
+                    yield Static(id="card-hint", classes="hint")
+                    yield Input(password=True, id="card-password")
+                    yield Input(placeholder="Repeat password", password=True,
+                                id="card-confirm")
+                    yield buttons("Sign in", "card-go")
                 with Vertical(id="welcome"):
                     yield Static(id="welcome-name", classes="title")
                     yield LoadingIndicator()
@@ -221,6 +251,11 @@ class GreeterApp(App):
         self.key_changed()
         self.show("people")
         self.refresh_people()
+        # A plain thread, so waiting for a swipe never holds up the app's workers.
+        threading.Thread(target=self.watch_cards, daemon=True).start()
+
+    def on_unmount(self):
+        self.stopping.set()
 
     # Helpers -----------------------------------------------------------------
 
@@ -233,13 +268,15 @@ class GreeterApp(App):
 
     def check_action(self, action, parameters):
         if action == "back":
-            return self.page in self.BACK or self.page == "waiting"
+            return (self.page in self.BACK or self.page == "waiting"
+                    or (self.switch is not None and self.page == "people"))
         return True
 
     def show(self, page, focus=None):
         self.query_one("#pages", ContentSwitcher).current = page
         self.refresh_bindings()
-        self.query_one("#panel").border_title = self.TITLES[page]
+        self.query_one("#panel").border_title = (
+            "SWITCH ACCOUNT" if self.switch and page == "people" else self.TITLES[page])
         self.say("")
         if focus:
             self.query_one(focus).focus()
@@ -339,6 +376,98 @@ class GreeterApp(App):
         self.job(lambda: self.request("unlock", username=username, password=password),
                  self.granted, "Decrypting…")
 
+    # Swipe cards -------------------------------------------------------------
+
+    def watch_cards(self):
+        """Long-poll kwak-userd for card swipes while the greeter is open."""
+        # after=0 also picks up a swipe from just before the greeter started,
+        # such as the one that opened a switch greeter.
+        after, first = 0, True
+        while not self.stopping.is_set():
+            try:
+                result = self.request("wait_card", timeout=40, after=after,
+                                      wait=0 if first else 30)
+            except client.UserError:
+                self.stopping.wait(5)
+                continue
+            after = result.get("seq", after)
+            # post_message is thread-safe and never waits on the app.
+            self.post_message(CardPolled(result, first))
+            first = False
+
+    def on_card_polled(self, message):
+        if self.stopping.is_set():
+            return
+        try:
+            if message.first and self.switch and not message.result.get("card"):
+                # Restarted after its session ended, with no swipe to handle.
+                self.close_switch()
+                return
+            self.card_polled(message.result)
+        except NoMatches:  # The app is closing and its widgets are gone.
+            pass
+
+    def close_switch(self):
+        """Close this switch greeter; kwak-userd goes back to a session."""
+        async def run():
+            try:
+                await asyncio.to_thread(self.request, "switch_done", instance=self.switch,
+                                        timeout=10)
+            except client.UserError as error:
+                self.say(str(error), error=True)
+                return
+            self.exit()
+
+        self.run_worker(run(), group="switch")
+
+    def card_polled(self, result):
+        self.query_one("#swipe").set_class(bool(result.get("reader")), "shown")
+        if result.get("card"):
+            self.card_swiped(result["card"])
+
+    def card_swiped(self, card):
+        if self.busy or self.page in ("waiting", "welcome"):
+            self.say("Finish or cancel this sign-in first, then swipe again.", error=True)
+            return
+        if card.get("error"):
+            self.say("That card couldn't be read. Swipe it again.", error=True)
+            return
+        self.card = card
+        for name in ("card-password", "card-confirm"):
+            self.field(name).value = ""
+        if card.get("signer"):
+            # An SKC3 card: its bunker is already paired, so just wait for it.
+            self.selected = None
+            self.wait_for_signer("Bunker card",
+                                 lambda: self.request("card_login", card=card["id"]),
+                                 back="people")
+            return
+        if card["password"] == "none":
+            # An account already on this computer: the card itself is the key.
+            self.selected = {"username": card["username"], "name": card.get("name", "")}
+            self.job(lambda: self.request("card_login", card=card["id"]), self.granted,
+                     "Starting session…")
+            return
+        new = card["password"] == "optional"
+        self.query_one("#card-name", Static).update("New card" if new else "Encrypted card")
+        self.query_one("#card-hint", Static).update(
+            "With a password, this card's key is kept on this computer as an ncryptsec. "
+            "Without one, you sign in as a guest that is deleted, with all its files, "
+            "when you log out." if new else
+            "Enter the card's password to decrypt its key. The encrypted key is kept on "
+            "this computer, so the password alone signs you in next time.")
+        self.field("card-password").placeholder = "Password (optional)" if new else "Card password"
+        self.field("card-confirm").display = new
+        self.show("card", "#card-password")
+
+    def sign_in_card(self):
+        card, password = self.card, self.field("card-password").value
+        if card["password"] == "optional" and password != self.field("card-confirm").value:
+            self.say("The passwords do not match.", error=True)
+            return
+        self.job(lambda: self.request("card_login", card=card["id"], password=password),
+                 self.granted, "Decrypting…" if password else "Setting up your account…")
+
     # Another account ---------------------------------------------------------
 
     def create(self):
@@ -417,6 +546,8 @@ class GreeterApp(App):
                 self.cancel_waiting()
         elif not self.busy and self.page in self.BACK:
             self.show(self.BACK[self.page])
+        elif not self.busy and self.switch and self.page == "people":
+            self.close_switch()
 
     def on_button_pressed(self, event):
         if event.button.has_class("back"):
@@ -429,14 +560,24 @@ class GreeterApp(App):
 
     def submit(self):
         action = {"unlock": self.unlock, "create": self.create, "key": self.sign_in_key,
-                  "bunker": self.sign_in_bunker, "local": self.sign_in_local}.get(self.page)
+                  "bunker": self.sign_in_bunker, "local": self.sign_in_local,
+                  "card": self.sign_in_card}.get(self.page)
         if action and not self.busy:
             action()
 
     def granted(self, grant):
         for name in ("key-text", "key-password", "bunker-uri", "unlock-password",
-                     "create-password", "create-confirm"):
+                     "create-password", "create-confirm", "card-password", "card-confirm"):
             self.field(name).value = ""
+        self.card = None
+        if grant.get("switched"):
+            # The account was already signed in; kwak-userd switched to it.
+            if self.switch:
+                self.close_switch()
+            else:
+                self.show("people")
+                self.say(f"Switched to {grant.get('name') or grant['username']}.")
+            return
         # Once greetd is starting the session it is too late to cancel.
         self.query_one("#waiting .back").disabled = True
         waiting = self.page == "waiting"
@@ -507,6 +648,11 @@ class SignOutApp(App):
 
 
 if __name__ == "__main__":
-    app = SignOutApp() if sys.argv[1:] == ["--signout"] else GreeterApp()
+    if sys.argv[1:] == ["--signout"]:
+        app = SignOutApp()
+    elif sys.argv[1:2] == ["--switch"] and len(sys.argv) == 3:
+        app = GreeterApp(switch=sys.argv[2])
+    else:
+        app = GreeterApp()
     result = app.run()
     raise SystemExit(result if isinstance(result, int) else 0)

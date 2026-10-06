@@ -7,6 +7,73 @@
 let
   cfg = config.kwak.nostrUsers;
   userd = lib.getExe pkgs.kwak-userd;
+  cards = lib.getExe pkgs.kwak-cards;
+  coreutils = "${pkgs.coreutils}/bin";
+  greeter = "${pkgs.cage}/bin/cage -s -m last -- ${lib.getExe pkgs.kwak-greeter}";
+  hyprlockPam = config.security.pam.services.hyprlock.rules;
+  # A second greetd on the next free VT, started by kwak-userd when a card is
+  # swiped during a session. Its greeter handles that swipe, then closes it.
+  switchGreeter = pkgs.writeShellScript "kwak-greeter-switch" ''
+    set -eu
+    case "$1" in "" | *[!0-9a-f]*) exit 2 ;; esac
+    cat > "$RUNTIME_DIRECTORY/greetd.toml" <<EOF
+    [terminal]
+    vt = "next"
+    switch = true
+
+    [default_session]
+    user = "greeter"
+    command = "${greeter} --switch $1"
+    EOF
+    exec ${lib.getExe config.services.greetd.package} --config "$RUNTIME_DIRECTORY/greetd.toml"
+  '';
+  hyprlockConfig = pkgs.writeText "hyprlock.conf" ''
+    general {
+      hide_cursor = false
+      # Bunker accounts unlock by approving on their signer: Enter with no password.
+      ignore_empty_input = false
+    }
+    background {
+      monitor =
+      color = rgb(000000)
+    }
+    label {
+      monitor =
+      text = LOCKED · $DESC ($USER)
+      color = rgb(33ff66)
+      font_size = 18
+      font_family = DejaVu Sans Mono
+      position = 0, 60
+      halign = center
+      valign = center
+    }
+    input-field {
+      monitor =
+      size = 520, 44
+      outline_thickness = 2
+      rounding = 0
+      outer_color = rgb(33ff66)
+      inner_color = rgb(030803)
+      font_color = rgb(c8ffd4)
+      check_color = rgb(ffcc33)
+      fail_color = rgb(ff5f5f)
+      font_family = DejaVu Sans Mono
+      fade_on_empty = false
+      placeholder_text = Password · Enter for your signer · or swipe your card
+      fail_text = $FAIL
+      position = 0, 0
+      halign = center
+      valign = center
+    }
+  '';
+  hypridleConfig = pkgs.writeText "hypridle.conf" ''
+    general {
+      lock_cmd = pidof hyprlock || hyprlock --config ${hyprlockConfig}
+      # kwak-userd unlocks a session after a swipe of its account's card.
+      unlock_cmd = pkill -USR1 hyprlock
+      before_sleep_cmd = loginctl lock-session
+    }
+  '';
   pamExec = "${config.security.pam.package}/lib/security/pam_exec.so";
   greetdPam = config.security.pam.services.greetd.rules;
   homeFiles = pkgs.linkFarm "kwak-home-files" (
@@ -62,6 +129,14 @@ in
         They get KWAK_USER, KWAK_PUBKEY, and KWAK_HOME in their environment.
       '';
     };
+    cards.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Sign in by swiping a Nostr swipe card (SKC1 or SKC2) on an MSR90 reader.
+        The reader service starts when the reader is plugged in.
+      '';
+    };
     groups = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ "nostr" ] ++ lib.optional config.networking.networkmanager.enable "networkmanager";
@@ -81,7 +156,10 @@ in
     users.groups.nostr = { };
 
     environment.etc = {
-      "kwak/userd.json".text = builtins.toJSON { inherit (cfg) relays groups; };
+      "kwak/userd.json".text = builtins.toJSON {
+        inherit (cfg) relays groups;
+        card_user = "kwak-cards";
+      };
     }
     // lib.optionalAttrs (cfg.homeFiles != { }) {
       "kwak/user-setup.d/00-home-files".source = homeFilesHook;
@@ -145,9 +223,48 @@ in
       };
     };
 
+    # Swipe cards: udev starts a reader service for each MSR90 that is plugged
+    # in. Only that service can read the reader (no uaccess for sessions), and it
+    # keeps the reader's keyboard output inhibited, so swipes are never typed
+    # into a window. kwak-userd ignores swipes unless the greeter is waiting.
+    users.users.kwak-cards = lib.mkIf cfg.cards.enable {
+      isSystemUser = true;
+      group = "kwak-cards";
+    };
+    users.groups.kwak-cards = lib.mkIf cfg.cards.enable { };
+    services.udev.extraRules = lib.mkIf cfg.cards.enable ''
+      SUBSYSTEM=="hidraw", ATTRS{idVendor}=="c216", ATTRS{idProduct}=="0180", GROUP="kwak-cards", MODE="0660", TAG+="systemd", ENV{SYSTEMD_WANTS}+="kwak-card-reader@%k.service"
+      ACTION=="add", SUBSYSTEM=="input", KERNEL=="input[0-9]*", ATTR{name}=="HID c216:0180", ATTRS{idVendor}=="c216", ATTRS{idProduct}=="0180", RUN+="${coreutils}/chgrp kwak-cards /sys%p/inhibited", RUN+="${coreutils}/chmod 0664 /sys%p/inhibited"
+    '';
+    systemd.services."kwak-card-reader@" = lib.mkIf cfg.cards.enable {
+      description = "Nostr swipe card reader on %I";
+      bindsTo = [ "dev-%i.device" ];
+      after = [
+        "dev-%i.device"
+        "kwak-userd.socket"
+      ];
+      serviceConfig = {
+        ExecStart = "${cards} read /dev/%I";
+        User = "kwak-cards";
+        Group = "kwak-cards";
+        Restart = "on-failure";
+        RestartSec = 2;
+        NoNewPrivileges = true;
+        PrivateNetwork = true;
+        PrivateTmp = true;
+        ProtectHome = true;
+        ProtectSystem = "strict";
+        DevicePolicy = "closed";
+        DeviceAllow = [ "/dev/%I r" ];
+        RestrictAddressFamilies = [ "AF_UNIX" ];
+        # Writing the reader's /sys/.../inhibited needs a writable /sys.
+        ProtectKernelTunables = false;
+      };
+    };
+
     services.greetd = {
       enable = true;
-      settings.default_session.command = "${pkgs.cage}/bin/cage -s -m last -- ${lib.getExe pkgs.kwak-greeter}";
+      settings.default_session.command = greeter;
     };
     # A one-time token from kwak-userd authenticates Nostr identities; local
     # accounts fall through to pam_unix with the same password prompt. Closing
@@ -175,6 +292,43 @@ in
           "pam-close"
         ];
       };
+    };
+
+    systemd.services."kwak-greeter-switch@" = {
+      description = "Account switching sign-in screen %i";
+      wants = [ "systemd-user-sessions.service" ];
+      after = [ "systemd-user-sessions.service" ];
+      serviceConfig = {
+        ExecStart = "${switchGreeter} %i";
+        RuntimeDirectory = "kwak-greeter-switch/%i";
+        # As for greetd.service.
+        IgnoreSIGPIPE = false;
+        SendSIGHUP = true;
+        TimeoutStopSec = "30s";
+        KeyringMode = "shared";
+      };
+      # Don't end a session that was started from it.
+      restartIfChanged = false;
+    };
+
+    # Switching accounts locks the session left behind. hypridle runs hyprlock
+    # on loginctl lock-session; Nostr identities unlock with their password,
+    # their signer, or a swipe of their card, and other users with pam_unix.
+    programs.hyprlock.enable = true;
+    systemd.user.services.hypridle.serviceConfig.ExecStart = [
+      ""
+      "${lib.getExe config.services.hypridle.package} --config ${hypridleConfig}"
+    ];
+    security.pam.services.hyprlock.rules.auth.kwak-userd = {
+      order = hyprlockPam.auth.unix.order - 10;
+      control = "sufficient";
+      modulePath = pamExec;
+      args = [
+        "expose_authtok"
+        "quiet"
+        userd
+        "pam-unlock"
+      ];
     };
 
     environment.systemPackages = [
