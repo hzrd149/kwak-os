@@ -105,8 +105,23 @@
 
             demo = pathlib.Path("${pkgs.hyprlax}/share/hyprlax/pixel-city")
             config = tomllib.loads((demo / "parallax.toml").read_text())
-            layers = config["global"]["layers"]
-            assert len(layers) == 6, "Expected the stock six-layer pixel-city demo"
+            global_config = config["global"]
+            assert global_config["parallax"] == {"input": "workspace", "shift_percent": 5}
+            assert global_config["render"] == {
+                "tile": {"x": True, "y": False}, "content_scale": 1.0
+            }
+            assert (global_config["fps"], global_config["duration"],
+                    global_config["vsync"], global_config["easing"]) == (144, 4.0, False, "expo")
+            layers = global_config["layers"]
+            assert [layer["path"] for layer in layers] == [
+                "./4.png", "./3.png", "./2.png", "./1.png", "./0.png"
+            ], "Expected exactly the five supplied images, back to front"
+            speeds = {layer["path"]: layer["shift_multiplier"] for layer in layers}
+            assert speeds["./0.png"] == speeds["./4.png"] == 0.0
+            assert speeds["./1.png"] > speeds["./2.png"] > speeds["./3.png"] > 0.0
+            assert sorted(p.name for p in demo.glob("*.png")) == [
+                "0.png", "1.png", "2.png", "3.png", "4.png"
+            ], "No stock demo images should be installed"
             for layer in layers:
                 image = demo / layer["path"]
                 assert image.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"), image

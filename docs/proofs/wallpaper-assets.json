@@ -1,0 +1,54 @@
+{
+  "0.png": {
+    "source_sha256": "bd263a6b7daefa93eff090e4e65ff87ed97236ee55f789ea26f94f676649b7aa",
+    "packaged_sha256": "bd263a6b7daefa93eff090e4e65ff87ed97236ee55f789ea26f94f676649b7aa",
+    "byte_identical": true,
+    "dimensions": [
+      2172,
+      724
+    ]
+  },
+  "1.png": {
+    "source_sha256": "d51631a5166104dd895aa7f494462cbbef02fac985f3fa2d6821e72966ea3bfe",
+    "packaged_sha256": "d51631a5166104dd895aa7f494462cbbef02fac985f3fa2d6821e72966ea3bfe",
+    "byte_identical": true,
+    "dimensions": [
+      2172,
+      724
+    ]
+  },
+  "2.png": {
+    "source_sha256": "be5866598cfd8531646956e3acaaa7dc3cf6b85862874ae66d289b3d7e8c8d06",
+    "packaged_sha256": "be5866598cfd8531646956e3acaaa7dc3cf6b85862874ae66d289b3d7e8c8d06",
+    "byte_identical": true,
+    "dimensions": [
+      2172,
+      724
+    ]
+  },
+  "3.png": {
+    "source_sha256": "acb1353625fa081bebe3a187d59ccc31fdb71c6e1e9044f52e2500d85f0df019",
+    "packaged_sha256": "0524140f14c6c25ba6975e5b243c3d1780f06764cc90f2c3478d59aa42f2f05b",
+    "byte_identical": false,
+    "dimensions": [
+      2172,
+      724
+    ]
+  },
+  "4.png": {
+    "source_sha256": "1fdd2a82c7bb976c187ae0716cd89772a6f0c00098572e8a9f0cdbe6c6a7df91",
+    "packaged_sha256": "1fdd2a82c7bb976c187ae0716cd89772a6f0c00098572e8a9f0cdbe6c6a7df91",
+    "byte_identical": true,
+    "dimensions": [
+      2172,
+      724
+    ]
+  },
+  "alpha_repair": {
+    "image": "3.png",
+    "transparent_pixels": 985824,
+    "rgb_unchanged": true,
+    "method": "Four-connected flood fill from image edges; max(R,G,B) <= 3; set only alpha to zero",
+    "script": "tests/wallpaper-alpha.py"
+  }
+}

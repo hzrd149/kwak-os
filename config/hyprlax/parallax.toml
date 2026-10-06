@@ -1,0 +1,50 @@
+# Based on hyprlax v2.2.7 examples/pixel-city/parallax.toml.
+# Keep the demo's workspace timing, easing, scale, and horizontal tiling.
+[global]
+fps = 144
+duration = 4.0
+vsync = false
+easing = "expo"
+
+[global.render]
+tile = { x = true, y = false }
+content_scale = 1.0
+
+[global.parallax]
+input = "workspace"
+shift_percent = 5
+
+# Render back to front. The sky and camera position stay fixed.
+[[global.layers]]
+path = "./4.png"
+shift_multiplier = 0.0
+opacity = 1.0
+blur = 0.0
+
+# Distant city: slowest moving layer.
+[[global.layers]]
+path = "./3.png"
+shift_multiplier = 0.3
+opacity = 1.0
+blur = 1.1
+
+# Middle city.
+[[global.layers]]
+path = "./2.png"
+shift_multiplier = 0.5
+opacity = 1.0
+blur = 0.3
+
+# Near city: fastest moving layer.
+[[global.layers]]
+path = "./1.png"
+shift_multiplier = 1.0
+opacity = 1.0
+blur = 0.0
+
+# Foreground rooftop / camera position.
+[[global.layers]]
+path = "./0.png"
+shift_multiplier = 0.0
+opacity = 1.0
+blur = 0.0

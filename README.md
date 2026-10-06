@@ -1,17 +1,16 @@
 # kwakOS
 
 A small NixOS 26.05 configuration for x86_64 Linux, with Hyprland **0.56.2**,
-SDDM, and a UWSM-managed desktop session. Hyprlax renders its six-layer
-pixel-city demo behind a minimal black Wofi launcher. No Home Manager layer
-is required.
+SDDM, and a UWSM-managed desktop session. Hyprlax renders a five-layer neon
+cityscape behind a minimal black Wofi launcher. No Home Manager layer is required.
 
 ## Layout
 
 - `flake.nix` and `flake.lock`: system outputs and pinned Nixpkgs revision.
 - `modules/base.nix`: network, locale, timezone, administrator account, and Nix.
 - `modules/desktop.nix`: Hyprland, SDDM, audio, and basic desktop applications.
-- `config/`: Hyprland Lua defaults and Wofi configuration/style.
-- `packages/`: pinned hyprlax demo and Wofi horizontal-grid patch.
+- `config/`: Hyprland Lua defaults, Hyprlax layers, and Wofi configuration/style.
+- `packages/`: pinned hyprlax package and Wofi horizontal-grid patch.
 - `hosts/vm`: local QEMU VM with a separate test password.
 - `hosts/physical`: UEFI installation with a hardware configuration template.
 
@@ -81,10 +80,12 @@ on a touchscreen; a mouse wheel also moves horizontally. The launcher uses GTK's
 kinetic scrolling. The grid has a fixed 640-pixel logical width.
 
 `kwak-launcher` uses the checked-in Wofi defaults; `kwak-wallpaper` starts hyprlax
-2.2.7 with its upstream pixel-city demo. The package corrects a stray `VV` suffix
-in the upstream demo TOML; all six images and other settings are unchanged.
-The demo artwork is attributed to [CraftPix](https://craftpix.net/freebies/)
-by [hyprlax](https://github.com/sandwichfarm/hyprlax/tree/v2.2.7/examples/pixel-city).
+2.2.7 with the five supplied images in `config/hyprlax`, based on the upstream
+[pixel-city configuration](https://github.com/sandwichfarm/hyprlax/blob/v2.2.7/examples/pixel-city/parallax.toml).
+The sky (`4.png`) and camera foreground (`0.png`) stay fixed. The city layers
+move at multipliers **1.0**, **0.5**, and **0.3** for images **1**, **2**, and **3**.
+Workspace input, 5% shift, four-second expo easing, 144 FPS, and horizontal tiling
+retain the demo defaults. [Wallpaper proof and reproduction](docs/wallpaper.md).
 
 See [desktop validation and visual proofs](docs/desktop-validation.md).
 
@@ -156,7 +157,7 @@ nix fmt
 
 `nix flake check --no-build` evaluates both system configurations; it does not
 boot them. `nix flake check` builds both system closures and checks the desktop
-Lua configuration and pixel-city assets. After editing the
+Lua configuration and five-layer wallpaper assets. After editing the
 hardware configuration, run the evaluation check again before deployment.
 
 Update the pin deliberately, then check and rebuild:

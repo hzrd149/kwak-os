@@ -1,0 +1,276 @@
+{
+  "runtime": "Unmodified hyprlax v2.2.7 source, CI=1 host build; isolated headless Sway with software rendering",
+  "ipc_adapter": "Real Sway IPC forwarded with JSON whitespace compacted for Hyprlax's literal string parser; no event values changed",
+  "compositor_version": "sway version 1.9",
+  "hyprlax_version": "hyprlax 2.2.7\nButtery-smooth parallax wallpaper daemon with support for multiple compositors, platforms and renderers",
+  "config_sha256": "70a1ced7a33e3cb48e3ee42793feb80aceba8723360a37c8b194ebeaa02b86bf",
+  "binary_sha256": "150fcd76c03e1559cff3ce3d1ca2e1071133b87c7e58ff23bc09b7fb32034b92",
+  "status": {
+    "running": true,
+    "layers": 5,
+    "target_fps": 144,
+    "fps": 0.2,
+    "parallax_input": "workspace:1.000",
+    "compositor": "Sway",
+    "socket": "/tmp/hyprlax-proof.sock",
+    "vsync": false,
+    "debug": true,
+    "caps": {
+      "steal": true,
+      "move": false,
+      "split": false,
+      "wsets": false,
+      "tags": false,
+      "vstack": false
+    },
+    "monitors": [
+      {
+        "name": "output-45",
+        "size": [
+          1440,
+          480
+        ],
+        "pos": [
+          0,
+          0
+        ],
+        "scale": 1,
+        "refresh": 0,
+        "caps": {
+          "steal": false,
+          "move": false,
+          "split": false,
+          "wsets": false,
+          "tags": false,
+          "vstack": false
+        }
+      }
+    ]
+  },
+  "layers": [
+    {
+      "id": 1,
+      "path": "/wallpaper/4.png",
+      "shift": 0.0,
+      "opacity": 1.0,
+      "z": 0,
+      "uv": [
+        0.0,
+        0.0
+      ],
+      "fit": "cover",
+      "align": [
+        0.5,
+        0.5
+      ],
+      "content_scale": 1.0,
+      "blur": 0.0,
+      "overflow": "repeat_edge",
+      "tile": [
+        true,
+        false
+      ],
+      "margin": [
+        0.0,
+        0.0
+      ],
+      "hidden": false,
+      "tint": [
+        1.0,
+        1.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "id": 2,
+      "path": "/wallpaper/3.png",
+      "shift": 0.3,
+      "opacity": 1.0,
+      "z": 10,
+      "uv": [
+        0.0,
+        0.0
+      ],
+      "fit": "cover",
+      "align": [
+        0.5,
+        0.5
+      ],
+      "content_scale": 1.0,
+      "blur": 1.1,
+      "overflow": "repeat_edge",
+      "tile": [
+        true,
+        false
+      ],
+      "margin": [
+        0.0,
+        0.0
+      ],
+      "hidden": false,
+      "tint": [
+        1.0,
+        1.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "id": 3,
+      "path": "/wallpaper/2.png",
+      "shift": 0.5,
+      "opacity": 1.0,
+      "z": 20,
+      "uv": [
+        0.0,
+        0.0
+      ],
+      "fit": "cover",
+      "align": [
+        0.5,
+        0.5
+      ],
+      "content_scale": 1.0,
+      "blur": 0.3,
+      "overflow": "repeat_edge",
+      "tile": [
+        true,
+        false
+      ],
+      "margin": [
+        0.0,
+        0.0
+      ],
+      "hidden": false,
+      "tint": [
+        1.0,
+        1.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "id": 4,
+      "path": "/wallpaper/1.png",
+      "shift": 1.0,
+      "opacity": 1.0,
+      "z": 30,
+      "uv": [
+        0.0,
+        0.0
+      ],
+      "fit": "cover",
+      "align": [
+        0.5,
+        0.5
+      ],
+      "content_scale": 1.0,
+      "blur": 0.0,
+      "overflow": "repeat_edge",
+      "tile": [
+        true,
+        false
+      ],
+      "margin": [
+        0.0,
+        0.0
+      ],
+      "hidden": false,
+      "tint": [
+        1.0,
+        1.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "id": 5,
+      "path": "/wallpaper/0.png",
+      "shift": 0.0,
+      "opacity": 1.0,
+      "z": 40,
+      "uv": [
+        0.0,
+        0.0
+      ],
+      "fit": "cover",
+      "align": [
+        0.5,
+        0.5
+      ],
+      "content_scale": 1.0,
+      "blur": 0.0,
+      "overflow": "repeat_edge",
+      "tile": [
+        true,
+        false
+      ],
+      "margin": [
+        0.0,
+        0.0
+      ],
+      "hidden": false,
+      "tint": [
+        1.0,
+        1.0,
+        1.0,
+        0.0
+      ]
+    }
+  ],
+  "measurements": {
+    "4.png": {
+      "measured_shift_px": 0,
+      "identical_frames": true,
+      "registration_error_rgb": 0.0,
+      "before_sha256": "1c49844e04285bdbbf91feafec9c2d11ddf62b46c9b590262fb8255c38949625",
+      "after_sha256": "1c49844e04285bdbbf91feafec9c2d11ddf62b46c9b590262fb8255c38949625"
+    },
+    "3.png": {
+      "measured_shift_px": -22,
+      "identical_frames": false,
+      "registration_error_rgb": 1.067800925925926,
+      "before_sha256": "dc53d3038cf283bde6df2641fa06c8febca81eda4c866a87bbfe41c267d078c9",
+      "after_sha256": "7d3a4380431163aaa16754b9573d6d68732c85778c33a86789d9a58d09466212"
+    },
+    "2.png": {
+      "measured_shift_px": -36,
+      "identical_frames": false,
+      "registration_error_rgb": 3.858024691358025e-06,
+      "before_sha256": "933583ea523de5c0f11d68340d48849e56da594bab9cb6fb03998c2df65eeb34",
+      "after_sha256": "1378f4cfadeeed4b0f2f4ea0826b58796414052b700bb590f9c2034201e6630b"
+    },
+    "1.png": {
+      "measured_shift_px": -72,
+      "identical_frames": false,
+      "registration_error_rgb": 0.0009047067901234568,
+      "before_sha256": "c4725f281e9af4f19bcfe3398664781cfcfaf22150dd192d0e9b506826e078b7",
+      "after_sha256": "cea90bf6e864ee0842fd6766cf330a5b764572ef14f5fc87bd31fbbbe58e2198"
+    },
+    "0.png": {
+      "measured_shift_px": 0,
+      "identical_frames": true,
+      "registration_error_rgb": 0.0,
+      "before_sha256": "a497dfcc74ea357604ab3967d96d7a5887a4aa4fe99b2359684fe20e1171f0ef",
+      "after_sha256": "a497dfcc74ea357604ab3967d96d7a5887a4aa4fe99b2359684fe20e1171f0ef"
+    }
+  },
+  "result": "PASS: foreground/sky identical; city movement 1 > 2 > 3 > 0",
+  "hyprlax_source_nar_hash": "sha256-CkhHGPfYqGTPSFFzhOoIQCGi31wK7u+MYpWqeq55RJQ=",
+  "proof_sha256": {
+    "wallpaper.png": "73e32f1a844bf6a5abf6734a85a18f46e360c5f51139b406bc8ad5639deed5d7",
+    "wallpaper-motion.gif": "f795ceedd360ddaf0ca1682e183aec0bf992a47ff5c09bb47d7a9b32309055fe"
+  },
+  "validation": [
+    "Nix package derivation evaluation passed",
+    "Evaluated postInstall executed; installed asset/config checks passed",
+    "Global settings equal upstream pixel-city defaults",
+    "Source image identities and alpha-only repair verified",
+    "Live workspace pixel comparisons passed"
+  ],
+  "limitations": [
+    "Runtime uses arm64 host build with Sway IPC whitespace proxy, not the x86_64 Nix artifact or Hyprland",
+    "Full NixOS closure build and VM boot not rerun"
+  ]
+}
