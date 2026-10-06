@@ -46,11 +46,13 @@
       nixosConfigurations = {
         vm = mkHost ./hosts/vm;
         physical = mkHost ./hosts/physical;
+        iso = mkHost ./hosts/iso;
       };
 
       packages.${system} = {
         inherit (pkgs) hyprland hyprlax wofi;
         vm = self.nixosConfigurations.vm.config.system.build.vm;
+        iso = self.nixosConfigurations.iso.config.system.build.isoImage;
         default = self.packages.${system}.vm;
       };
 
@@ -65,6 +67,19 @@
 
       formatter.${system} = pkgs.nixfmt-tree;
       checks.${system} = {
+        iso-config =
+          let
+            live = self.nixosConfigurations.iso.config;
+          in
+          assert live.isoImage.makeEfiBootable && live.isoImage.makeBiosBootable;
+          assert live.isoImage.makeUsbBootable;
+          assert live.services.displayManager.autoLogin.user == "kwak";
+          assert live.users.users.kwak.initialHashedPassword == "";
+          assert !live.services.openssh.enable;
+          assert !live.security.sudo.wheelNeedsPassword;
+          assert live.fileSystems."/".fsType == "tmpfs";
+          assert self.nixosConfigurations.physical.config.users.users.kwak.initialHashedPassword == null;
+          pkgs.runCommand "kwak-iso-config-check" { } "touch $out";
         desktop-config =
           assert nixpkgs.lib.hasPrefix "0.56.2+" pkgs.hyprland.version;
           pkgs.runCommand "kwak-desktop-config-check" { nativeBuildInputs = [ pkgs.python3 ]; } ''

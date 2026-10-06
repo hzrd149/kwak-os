@@ -14,6 +14,7 @@ is required.
 - `packages/`: pinned hyprlax demo and Wofi horizontal-grid patch.
 - `hosts/vm`: local QEMU VM with a separate test password.
 - `hosts/physical`: UEFI installation with a hardware configuration template.
+- `hosts/iso`: bootable live desktop and manual installation media.
 
 The default user is `kwak`. Change it in `modules/base.nix` and the VM password
 setting together if needed. The timezone defaults to `America/Chicago`.
@@ -85,6 +86,23 @@ by [hyprlax](https://github.com/sandwichfarm/hyprlax/tree/v2.2.7/examples/pixel-
 
 See [desktop validation and visual proofs](docs/desktop-validation.md).
 
+## Build or download a live ISO
+
+```sh
+nix build .#iso --out-link result-iso
+ls result-iso/iso/*.iso
+```
+
+The x86_64 image supports BIOS and UEFI boot from optical media or USB. It opens
+the kwakOS desktop as `kwak`; the live accounts have empty passwords and
+passwordless sudo. SSH is disabled. Changes disappear on reboot. The ISO does
+not partition disks or install automatically.
+
+The [ISO workflow](.github/workflows/iso.yml) builds branch pushes and uploads the
+image plus checksums to Actions artifacts and GitHub Packages as an OCI artifact.
+See [ISO building, downloading, and validation](docs/iso.md) for exact commands,
+package access, and the distinction between live media and an installed system.
+
 ## Install on a physical machine
 
 This target assumes **x86_64, UEFI boot, and an EFI partition mounted at
@@ -92,7 +110,7 @@ This target assumes **x86_64, UEFI boot, and an EFI partition mounted at
 and platform before installing. Hardware-specific GPU configuration, particularly
 NVIDIA, belongs in `hosts/physical` after identifying the machine.
 
-1. Boot the official NixOS installer in UEFI mode and connect to the network.
+1. Boot the kwakOS live ISO or official NixOS installer in UEFI mode and connect to the network.
 2. Partition and format the intended disk following the NixOS installation
    manual, then mount the root filesystem at `/mnt` and EFI partition at
    `/mnt/boot`. Disk formatting erases data; choose the actual disk yourself.
@@ -151,8 +169,8 @@ nix flake check --no-build
 nix fmt
 ```
 
-`nix flake check --no-build` evaluates both system configurations; it does not
-boot them. `nix flake check` builds both system closures and checks the desktop
+`nix flake check --no-build` evaluates all system configurations; it does not
+boot them. `nix flake check` builds the VM and physical system closures and checks the desktop
 Lua configuration and pixel-city assets. After editing the
 hardware configuration, run the evaluation check again before deployment.
 

@@ -1,0 +1,124 @@
+name: ISO
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: iso-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # Same-repository PRs already have a push build for their exact commit.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Make space for the desktop closure
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            max-jobs = 1
+            cores = 2
+
+      - name: Evaluate all targets and check desktop configuration
+        run: |
+          nix build --no-link --no-update-lock-file \
+            .#checks.x86_64-linux.desktop-config .#checks.x86_64-linux.iso-config
+          nix flake check --no-build --no-update-lock-file
+
+      - name: Build the live ISO
+        run: nix build --print-build-logs --no-update-lock-file .#iso --out-link result-iso
+
+      - name: Inspect boot records and prepare checksums
+        run: |
+          mkdir dist
+          cp result-iso/iso/*.iso dist/
+          images=(dist/*.iso)
+          test "${#images[@]}" -eq 1
+          # GHCR permits at most 10 GB per layer.
+          test "$(stat -c %s "${images[0]}")" -lt 10000000000
+          nix shell --inputs-from . nixpkgs#xorriso --command \
+            xorriso -indev "${images[0]}" -report_el_torito plain 2>&1 | tee boot-records.txt
+          grep -Eq 'El Torito boot img.*BIOS' boot-records.txt
+          grep -Eq 'El Torito boot img.*UEFI' boot-records.txt
+          printf '%s\n' "$GITHUB_SHA" > dist/SOURCE_REVISION
+          cd dist
+          sha256sum ./*.iso SOURCE_REVISION > SHA256SUMS
+          sha256sum --check SHA256SUMS
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: kwakos-iso-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  publish:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: kwakos-iso-${{ github.sha }}
+          path: dist
+
+      - uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2.0.2
+        with:
+          version: 1.3.4
+
+      - name: Publish ISO to GitHub Packages and verify the download
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          export DOCKER_CONFIG="$RUNNER_TEMP/oras-auth"
+          mkdir -p "$DOCKER_CONFIG"
+          trap 'oras logout ghcr.io' EXIT
+          printf '%s' "$GHCR_TOKEN" | oras login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          unset GHCR_TOKEN
+          package="ghcr.io/${GITHUB_REPOSITORY,,}/iso"
+          cd dist
+          sha256sum --check SHA256SUMS
+          test "$(cat SOURCE_REVISION)" = "$GITHUB_SHA"
+          images=(*.iso)
+          test "${#images[@]}" -eq 1
+          oras push "$package:sha-$GITHUB_SHA" \
+            --artifact-type application/vnd.kwakos.iso.v1 \
+            --annotation "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --annotation "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --annotation 'org.opencontainers.image.description=kwakOS x86_64 live ISO' \
+            --export-manifest "$RUNNER_TEMP/iso-manifest.json" \
+            "${images[0]}:application/x-iso9660-image" \
+            SHA256SUMS:text/plain SOURCE_REVISION:text/plain
+          digest="sha256:$(sha256sum "$RUNNER_TEMP/iso-manifest.json" | cut -d ' ' -f 1)"
+          oras pull "$package@$digest" --output "$RUNNER_TEMP/iso-verify"
+          cd "$RUNNER_TEMP/iso-verify"
+          sha256sum --check SHA256SUMS
+          test "$(cat SOURCE_REVISION)" = "$GITHUB_SHA"
+          {
+            printf 'Published and downloaded with matching SHA-256 checksums.\n\n'
+            printf 'Package: %s:sha-%s\n\n' "$package" "$GITHUB_SHA"
+            printf 'Digest: %s\n\n' "$digest"
+            printf 'Download: oras pull %s@%s\n' "$package" "$digest"
+          } >> "$GITHUB_STEP_SUMMARY"
