@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: iso-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
