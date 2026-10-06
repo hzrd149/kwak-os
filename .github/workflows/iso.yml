@@ -44,7 +44,8 @@ jobs:
       - name: Evaluate all targets and check desktop configuration
         run: |
           nix build --no-link --no-update-lock-file \
-            .#checks.x86_64-linux.desktop-config .#checks.x86_64-linux.iso-config
+            .#checks.x86_64-linux.desktop-config .#checks.x86_64-linux.iso-config \
+            .#checks.x86_64-linux.settings
           nix flake check --no-build --no-update-lock-file
 
       - name: Build the live ISO

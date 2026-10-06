@@ -34,6 +34,8 @@ def main():
     args = parser.parse_args()
     if os.uname().nodename != 'kwakos-vm' or clients():
         raise SystemExit('Requires the disposable kwakos-vm with no open windows')
+    if ctl('repl', 'return kwak_settings.mode').strip() != 'kwassik':
+        raise SystemExit('Select Kwassik in Settings before testing its workspace policy')
     args.output.mkdir(parents=True, exist_ok=True)
     processes = []
     result = {}

@@ -59,6 +59,7 @@ in
     hyprlax
     kwak-launcher
     kwak-wallpaper
+    kwak-settings
     adwaita-icon-theme
     kdePackages.dolphin
     firefox

@@ -11,7 +11,7 @@ On x86_64 Linux with Nix and flakes enabled:
 
 ```sh
 nix build .#iso --out-link result-iso
-nix build .#checks.x86_64-linux.desktop-config .#checks.x86_64-linux.iso-config --no-link
+nix build --no-link .#checks.x86_64-linux.desktop-config .#checks.x86_64-linux.iso-config .#checks.x86_64-linux.settings
 nix flake check --no-build
 sha256sum result-iso/iso/*.iso
 ```
@@ -49,7 +49,7 @@ push or manual run publishes a commit-tagged candidate, including feature
 branches. There is no moving `latest` tag or automatic release promotion.
 
 The build job checks the Nix configurations, the built Hyprland configuration,
-and the live media's account/storage policy. It builds the ISO, checks BIOS and
+the settings tests, and the live media's account/storage policy. It builds the ISO, checks BIOS and
 UEFI El Torito boot entries, enforces GHCR's layer-size limit, and uploads an
 Actions artifact with seven-day retention. The publishing job receives only
 that artifact and uses `GITHUB_TOKEN` with `packages: write`. It pushes with
