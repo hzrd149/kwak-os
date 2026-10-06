@@ -122,13 +122,14 @@ NVIDIA, belongs in `hosts/physical` after identifying the machine.
 5. Install and set the administrator's password before rebooting:
 
    ```sh
-   sudo nixos-install --flake .#physical --no-root-passwd
+   sudo nixos-install --flake .#physical
    sudo nixos-enter --root /mnt -c 'passwd kwak'
    sudo reboot
    ```
 
-   The physical target has no preset password. Root stays locked when using
-   `--no-root-passwd`; `kwak` can administer the system with `sudo`.
+   The physical target has no preset password. The installer prompts for the
+   root password used by remote deployments; `kwak` can also administer the
+   system with `sudo`.
 
 6. Keep a clone of this repo on the installed machine, including its generated
    hardware file. Apply later changes from that clone:
@@ -137,11 +138,11 @@ NVIDIA, belongs in `hosts/physical` after identifying the machine.
    sudo nixos-rebuild switch --flake .#physical
    ```
 
-SSH is disabled by default. For remote deployment, explicitly enable
-`services.openssh.enable`, configure the user's authorized SSH keys, and provision
-the machine before using `nixos-rebuild` with `--target-host` and
-`--sudo`. Keep the physical hardware configuration in version control, but keep
-private keys and plaintext passwords out of the repo.
+SSH and the firewall rule for TCP/22 are enabled by the shared base module.
+After installation, deploy directly as root with `nixos-rebuild --target-host`
+or migrate root to an authorized SSH key. Keep the physical hardware
+configuration in version control, but keep private keys and plaintext passwords
+out of the repo.
 
 ## Check and update
 
