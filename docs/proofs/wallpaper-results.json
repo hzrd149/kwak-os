@@ -3,7 +3,7 @@
   "ipc_adapter": "Real Sway IPC forwarded with JSON whitespace compacted for Hyprlax's literal string parser; no event values changed",
   "compositor_version": "sway version 1.9",
   "hyprlax_version": "hyprlax 2.2.7\nButtery-smooth parallax wallpaper daemon with support for multiple compositors, platforms and renderers",
-  "config_sha256": "ba78ad7272b0790c3107997bfa5df87a19cf3a2c08788277115927246e821f16",
+  "config_sha256": "d3f9e8ac8f16d83749011d125998f840ffe97eee09b40243f343b34a8fa16b7c",
   "binary_sha256": "150fcd76c03e1559cff3ce3d1ca2e1071133b87c7e58ff23bc09b7fb32034b92",
   "status": {
     "running": true,
@@ -153,7 +153,7 @@
     {
       "id": 4,
       "path": "/wallpaper/1.png",
-      "shift": 1.0,
+      "shift": 0.6,
       "opacity": 1.0,
       "z": 30,
       "uv": [
@@ -242,11 +242,11 @@
       "after_sha256": "ddebd8e9f3f9096866e577066a527406ef32fca6ead4d498e976f7253b9a2543"
     },
     "1.png": {
-      "measured_shift_px": -162,
+      "measured_shift_px": -97,
       "identical_frames": false,
-      "registration_error_rgb": 0.0004578189300411523,
+      "registration_error_rgb": 1.0873334619341564,
       "before_sha256": "078b6083d5584dcede16a522543acee76521c62cf899714f1d5eff49ff60edd0",
-      "after_sha256": "4190b625fb1d33a2accbba471219fd9cd5b37c91817bddea0d9c79415a55c3be"
+      "after_sha256": "94ec6f5a64d169f5360497fcdb87f8f4d5f3c6964a9f6cbfdcbb29cd54ab2e46"
     },
     "0.png": {
       "measured_shift_px": 0,
@@ -264,7 +264,8 @@
     "Global settings equal upstream pixel-city defaults",
     "Source image identities and alpha-only repair verified",
     "Live workspace pixel comparisons passed",
-    "Vertical placement verified against prior 1080p isolated-layer captures: 0 down 108px, 1 down 216px, 2/3 up 54px, sky unchanged"
+    "Vertical placement verified against prior 1080p isolated-layer captures: 0 down 108px, 1 down 216px, 2/3 up 54px, sky unchanged",
+    "Layer 1 multiplier reduced from 1.0 to 0.6; all workspace-1 layer captures match previous placement exactly"
   ],
   "limitations": [
     "Runtime uses arm64 host build with Sway IPC whitespace proxy, not the x86_64 Nix artifact or Hyprland",
@@ -325,6 +326,6 @@
   },
   "proof_sha256": {
     "wallpaper.png": "87b136b1fa7418e6997a3cf75e2a34939fe50fa7f899e723904b1a0bdb399336",
-    "wallpaper-motion.gif": "fdfbf9f3e29df63a4be5573cb1c47e2629cb138bf279f6a331068b4927357440"
+    "wallpaper-motion.gif": "795fad816d14a340c69e5ca32701eefddba7771df12f233a59fbd492410b6972"
   }
 }

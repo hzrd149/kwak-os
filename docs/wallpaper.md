@@ -9,7 +9,7 @@ path, `share/hyprlax/pixel-city/parallax.toml`, keeps the launcher compatible.
 | `4.png` | Fixed sky | 0.0 | Unchanged | 1 (back) |
 | `3.png` | Distant city | 0.3 | Up 5% | 2 |
 | `2.png` | Middle city | 0.5 | Up 5% | 3 |
-| `1.png` | Near city | 1.0 | Down 20% | 4 |
+| `1.png` | Near city | 0.6 | Down 20% | 4 |
 | `0.png` | Fixed camera / rooftop | 0.0 | Down 10% | 5 (front) |
 
 Per-layer `uv_offset.y` exposes the skyline above the foreground: negative values
@@ -75,7 +75,7 @@ layers pixel-for-pixel, and measures city translation by image registration.
 record the result.
 
 At 1920×1080 with the retained `cover` fit, images **1**, **2**, and **3** moved
-**162**, **81**, and approximately **49 screen pixels** respectively during a
+approximately **97**, **81**, and **49 screen pixels** respectively during a
 one-workspace change. Images **0** and **4** produced byte-identical before/after
 PNGs. The existing blur on layers 2 and 3 is retained in these captures.
 Nix package evaluation, the evaluated asset installation step and its config
