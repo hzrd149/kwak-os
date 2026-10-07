@@ -266,6 +266,13 @@ in
       enable = true;
       settings.default_session.command = greeter;
     };
+    systemd.services.greetd = {
+      # Type=idle holds the greeter back up to 5s until other boot jobs are
+      # dispatched; that only matters for text greeters, and this one runs in cage.
+      serviceConfig.Type = lib.mkForce "simple";
+      # Start kwak-userd alongside the greeter, so it is up by the first request.
+      wants = [ "kwak-userd.service" ];
+    };
     # A one-time token from kwak-userd authenticates Nostr identities; local
     # accounts fall through to pam_unix with the same password prompt. Closing
     # the session of a temporary identity deletes it.
