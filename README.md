@@ -20,10 +20,12 @@ is required.
 - `packages/`: pinned desktop packages, Hyprflow plugin, and Wofi grid patch.
 - `hosts/vm`: local QEMU VM with a separate test password.
 - `hosts/physical`: UEFI installation with a hardware configuration template.
-- `hosts/iso`: bootable live desktop and manual installation media.
+- `hosts/iso`: bootable live desktop and offline graphical installation media.
 
-The default user is `kwak`. Change it in `modules/base.nix` and the VM password
-setting together if needed. The timezone defaults to `America/Chicago`.
+The live/VM default user is `kwak`. The graphical installer lets you choose the
+installed administrator's username and timezone. Manual configurations can set
+`kwak.adminUser`; adjust the VM password setting if changing its default account.
+The default timezone is `America/Chicago`.
 
 ## Run the VM
 
@@ -103,29 +105,84 @@ See [desktop validation and visual proofs](docs/desktop-validation.md).
 
 ## Build or download a live ISO
 
+**Installer status:** offline installation and the latest graphical-launch fixes
+are still under validation. ISO builds and unit tests pass, but a complete
+offline install/reboot/login has not yet been demonstrated. See
+[implementation status](docs/iso.md#implementation-status).
+
+To download a built image, open a successful run of the [ISO workflow](https://github.com/hzrd149/kwak-os/actions/workflows/iso.yml)
+and download its **kwakos-iso-…** artifact. GitHub requires sign-in. Extract the ZIP;
+flash the `.iso` inside it, not the ZIP. Artifacts are retained for 90 days.
+
+To build it yourself:
+
 ```sh
 nix build .#iso --out-link result-iso
 ls result-iso/iso/*.iso
 ```
 
-The x86_64 image supports BIOS and UEFI boot from optical media or USB. It opens
+The x86_64 image boots from optical media or USB. **Installation requires UEFI**;
+legacy-mode boot shows instructions to restart in UEFI before changing any disks. It opens
 the kwakOS desktop as `kwak`; the live accounts have empty passwords and
 passwordless sudo. SSH is disabled. Changes disappear on reboot. The graphical
 kwakOS installer opens automatically and is also available from the application
 launcher. It walks through locale, keyboard, account, hostname, and disk setup;
 the final confirmation is destructive when an erase-disk layout is selected.
 
-The installer copies this flake to `/etc/nixos/kwak-os`, replaces the physical
+The installer works **without internet access**. It copies this flake to `/etc/nixos/kwak-os`, replaces the physical
 hardware template with the detected target hardware, and installs
 `#physical`. The selected account password and root password are applied by the
-installer, and the installed system boots with SSH enabled for deployments.
+installer. The selected username is the local administrator; the installed system
+boots with the Nostr greeter and SSH enabled for deployments.
 
-The [ISO workflow](.github/workflows/iso.yml) builds branch pushes and uploads the
+The [ISO workflow](.github/workflows/iso.yml) builds only pushed `v*` release tags and uploads the
 image plus checksums to Actions artifacts and GitHub Packages as an OCI artifact.
 See [ISO building, downloading, and validation](docs/iso.md) for exact commands,
 package access, and the distinction between live media and an installed system.
 
 ## Install on a physical machine
+
+You need an x86_64 PC with UEFI firmware, at least 3 GiB RAM, at least 25 GiB of
+installation space, and a USB stick large enough for the downloaded ISO (use a
+16 GB stick for the offline image). Back up files you want to keep.
+
+1. **Flash the ISO** with [balenaEtcher](https://etcher.balena.io/) or Rufus
+   (choose **DD mode** if asked). Select the USB stick, not an internal disk.
+   Flashing replaces the USB stick's contents.
+2. **Boot from the USB.** Open your PC's boot menu and choose its **UEFI** USB entry.
+   Secure Boot is not supported by this image; disable it in firmware if necessary.
+3. **Complete the installer**, which opens automatically. Internet is optional.
+   Choose your language/location, keyboard, name, username, password, and computer name.
+   If you close the installer, press **Super+Space** and search for **Install KwakOS**.
+4. **Choose the destination disk.** The guided **Erase disk** option creates the
+   installation layout automatically. Check the disk's model and capacity carefully:
+   this removes the data on that disk. Review the summary and confirm installation.
+5. **Restart** when installation finishes. Remove the USB as the computer restarts.
+6. **Sign in.** To use the account you created, choose **Sign in with another
+   account… → Linux user**, then enter your chosen username and password.
+   You can also use a Nostr identity; see [Nostr users](docs/users.md).
+
+The machine-specific configuration is saved under `/etc/nixos/kwak-os`. The
+installer also writes `/etc/nixos/system.nix`, which uses the bundled, pinned
+inputs for normal rebuilds:
+
+```sh
+sudo nixos-rebuild switch --file /etc/nixos/system.nix
+```
+
+The bundled inputs are kept alive by Nix garbage-collection roots. To update the
+upstream pins later, connect to the internet and use the saved flake explicitly:
+
+```sh
+sudo nix flake update --flake /etc/nixos/kwak-os
+sudo nixos-rebuild switch --flake /etc/nixos/kwak-os#physical
+```
+
+After updating pins, use the `--flake` command for subsequent rebuilds; the
+offline `/etc/nixos/system.nix` entry is tied to the image's original inputs and
+rejects mismatched pins.
+
+### Advanced: manual installation
 
 This target assumes **x86_64, UEFI boot, and an EFI partition mounted at
 `/mnt/boot`**. For legacy BIOS or different architectures, adjust the boot loader

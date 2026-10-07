@@ -2,11 +2,7 @@ name: ISO
 
 on:
   push:
-    branches: ['**']
     tags: ['v*']
-  pull_request:
-    branches: [master]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -21,10 +17,8 @@ concurrency:
 
 jobs:
   build:
-    # Same-repository PRs already have a push build for their exact commit.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -45,11 +39,17 @@ jobs:
         run: |
           nix build --no-link --no-update-lock-file \
             .#checks.x86_64-linux.desktop-config .#checks.x86_64-linux.iso-config \
-            .#checks.x86_64-linux.settings
+            .#checks.x86_64-linux.kwak-settings .#checks.x86_64-linux.installer
           nix flake check --no-build --no-update-lock-file
+
+      - name: Install offline and boot the installed UEFI system
+        run: nix build --print-build-logs --no-link --no-update-lock-file .#checks.x86_64-linux.installer-offline
 
       - name: Build the live ISO
         run: nix build --print-build-logs --no-update-lock-file .#iso --out-link result-iso
+
+      - name: Boot the USB image and verify installer autostart
+        run: nix build --print-build-logs --no-link --no-update-lock-file .#checks.x86_64-linux.iso-usb-boot
 
       - name: Inspect boot records and prepare checksums
         run: |
@@ -69,16 +69,29 @@ jobs:
           sha256sum --check SHA256SUMS
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        id: upload_iso
         with:
           name: kwakos-iso-${{ github.sha }}
           path: dist/
           if-no-files-found: error
           compression-level: 0
-          retention-days: 7
+          retention-days: 90
+
+      - name: Show browser download and USB instructions
+        env:
+          ARTIFACT_URL: ${{ steps.upload_iso.outputs.artifact-url }}
+        run: |
+          {
+            printf '## Download and install KwakOS\n\n'
+            printf '[Download the ISO artifact](%s).\n\n' "$ARTIFACT_URL"
+            printf 'Download the artifact ZIP, extract it, and flash the `.iso` using Etcher or Rufus (DD mode).\n\n'
+            printf 'Boot the USB in **UEFI mode**. The graphical installer opens automatically; internet is not required.\n\n'
+            printf 'Choose your settings, account, and destination disk. Restart after installation and remove the USB as the computer restarts.\n\n'
+            printf 'Artifacts are retained for 90 days. GitHub requires sign-in for Actions downloads.\n'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   publish:
     needs: build
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

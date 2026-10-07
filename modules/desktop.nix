@@ -20,6 +20,9 @@ let
       exec hyprlax --config ${pkgs.hyprlax}/share/hyprlax/pixel-city/parallax.toml "$@"
     '';
   };
+  keyboardConfig = pkgs.writeText "kwak-keyboard.lua" ''
+    kwak_keyboard = { layout = ${builtins.toJSON config.services.xserver.xkb.layout}, variant = ${builtins.toJSON config.services.xserver.xkb.variant} }
+  '';
 in
 {
   # The release flake supplies the compositor and its matching portal together.
@@ -31,7 +34,9 @@ in
 
   # XDG system defaults leave each user's ~/.config overrides intact.
   environment.etc = {
-    "xdg/hypr/hyprland.lua".source = pkgs.kwak-hyprland-config;
+    "xdg/hypr/hyprland.lua".source = pkgs.runCommand "kwak-hyprland.lua" { } ''
+      cat ${keyboardConfig} ${pkgs.kwak-hyprland-config} > $out
+    '';
     "xdg/wofi/config".source = ../config/wofi/config;
     "xdg/wofi/style.css".source = ../config/wofi/style.css;
   };

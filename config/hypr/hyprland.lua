@@ -28,7 +28,11 @@ hl.config({
         blur = { enabled = false },
     },
     animations = { enabled = false },
-    input = { kb_layout = "us", touchpad = { natural_scroll = true } },
+    input = {
+        kb_layout = (kwak_keyboard or {}).layout or "us",
+        kb_variant = (kwak_keyboard or {}).variant or "",
+        touchpad = { natural_scroll = true },
+    },
     master = { new_status = "slave" },
     dwindle = { preserve_split = true },
     scrolling = { column_width = 0.6 },

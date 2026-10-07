@@ -153,7 +153,7 @@ class GreeterApp(App):
         ("create", "New account", "Generate a new Nostr key on this computer."),
         ("key", "Existing account", "Sign in with your nsec or ncryptsec."),
         ("bunker", "Remote signer", "Sign in with a bunker:// URI and approve it in your signer."),
-        ("local", "Linux user", "Sign in to a local account, such as the kwak administrator."),
+        ("local", "Linux user", "Sign in with the username and password you chose when installing KwakOS."),
     )
     ADD_FOCUS = {"create": "create-password", "key": "key-text", "bunker": "bunker-uri",
                  "local": "local-user"}
