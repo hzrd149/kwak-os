@@ -369,6 +369,26 @@
         "type": "github"
       }
     },
+    "kwakore": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1791399113,
+        "narHash": "sha256-+YZl/C7bq6BuxDz5Q4oM+6laq90lw0Ebt2/npJAOuto=",
+        "owner": "hzrd149",
+        "repo": "kwakore",
+        "rev": "f1810d9d90e89d70433a84a0b98824b9f8c2ddf2",
+        "type": "github"
+      },
+      "original": {
+        "owner": "hzrd149",
+        "repo": "kwakore",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1785828668,
@@ -446,6 +466,7 @@
     "root": {
       "inputs": {
         "hyprland": "hyprland",
+        "kwakore": "kwakore",
         "nixpkgs": "nixpkgs_2",
         "nostr-swipe-cards": "nostr-swipe-cards"
       }

@@ -12,6 +12,11 @@
       url = "git+https://relay.ngit.dev/npub1ye5ptcxfyyxl5vjvdjar2ua3f0hynkjzpx552mu5snj3qmx5pzjscpknpr/nostr-swipe-cards.git";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # The napplet runtime, a per-user service that signs through kwak-userd.
+    kwakore = {
+      url = "github:hzrd149/kwakore";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -20,6 +25,7 @@
       nixpkgs,
       hyprland,
       nostr-swipe-cards,
+      kwakore,
     }:
     let
       system = "x86_64-linux";
@@ -133,12 +139,13 @@
         host: extraModules:
         nixpkgs.lib.nixosSystem {
           inherit system;
-          specialArgs = { inherit hyprland; };
+          specialArgs = { inherit hyprland kwakore; };
           modules = [
             { nixpkgs.overlays = [ desktopOverlay ]; }
             ./modules/base.nix
             ./modules/desktop.nix
             ./modules/users.nix
+            ./modules/napplets.nix
             host
           ]
           ++ extraModules;

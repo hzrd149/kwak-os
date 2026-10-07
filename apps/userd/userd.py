@@ -55,6 +55,10 @@ DEFAULTS = {
     "switch_unit": "kwak-greeter-switch",
     "relays": ["wss://purplepag.es", "wss://relay.damus.io", "wss://nos.lol"],
     "token_ttl": 60,
+    # Programs that may sign as the user they run as: kwakore's daemon, by the
+    # path /proc/PID/exe shows.
+    "signer_clients": [],
+    "proc": "/proc",
 }
 USERNAME = re.compile(r"^n[0-9a-f]{10}$")
 HEX_KEY = re.compile(r"^[0-9a-f]{64}$")
@@ -179,6 +183,164 @@ def ncryptsec_decrypt(text, password):
     except CryptoError:
         raise UserError("Wrong password.") from None
     return secret.hex()
+
+
+# --- Signing for the session --------------------------------------------------
+#
+# kwakore's "system" signer mode asks kwak-userd to sign for the user it runs as
+# (kwakore's docs/system-signer.md). Keys held in memory sign here, so nothing
+# secret reaches a command line; bunker identities sign through nak.
+
+
+def event_template(event):
+    """The unsigned fields of an event to sign, checked."""
+    if not isinstance(event, dict):
+        raise UserError("Expected an event.")
+    kind, created_at = event.get("kind"), event.get("created_at")
+    tags, content = event.get("tags", []), event.get("content")
+    if (not isinstance(kind, int) or isinstance(kind, bool) or not 0 <= kind <= 65535
+            or not isinstance(created_at, int) or isinstance(created_at, bool)
+            or not 0 <= created_at < 1 << 40 or not isinstance(content, str)
+            or not isinstance(tags, list)
+            or any(not isinstance(tag, list) or any(not isinstance(item, str) for item in tag)
+                   for tag in tags)):
+        raise UserError("Invalid event.")
+    return {"kind": kind, "created_at": created_at, "tags": tags, "content": content}
+
+
+def event_id(pubkey, template):
+    serialized = json.dumps(
+        [0, pubkey, template["created_at"], template["kind"], template["tags"],
+         template["content"]],
+        separators=(",", ":"), ensure_ascii=False,
+    )
+    return hashlib.sha256(serialized.encode()).hexdigest()
+
+
+def sign_event(secret, template):
+    from coincurve import PrivateKey, PublicKeyXOnly
+
+    key = bytes.fromhex(secret)
+    pubkey = PublicKeyXOnly.from_secret(key).format().hex()
+    event_hash = event_id(pubkey, template)
+    signature = PrivateKey(key).sign_schnorr(bytes.fromhex(event_hash), os.urandom(32))
+    return {"id": event_hash, "pubkey": pubkey, **template, "sig": signature.hex()}
+
+
+def shared_x(secret, pubkey):
+    """The x coordinate of the ECDH point, as NIP-04 and NIP-44 use it."""
+    from coincurve import PublicKey
+
+    if not HEX_KEY.match(pubkey or ""):
+        raise UserError("Invalid public key.")
+    try:
+        point = PublicKey(b"\x02" + bytes.fromhex(pubkey)).multiply(bytes.fromhex(secret))
+    except ValueError:
+        raise UserError("Invalid public key.") from None
+    return point.format(compressed=True)[1:]
+
+
+def _nip44_keys(conversation, nonce):
+    import hmac
+
+    okm, block = b"", b""
+    for counter in range(1, 4):
+        block = hmac.new(conversation, block + nonce + bytes([counter]), "sha256").digest()
+        okm += block
+    return okm[:32], okm[32:44], okm[44:76]
+
+
+def _nip44_padded_length(length):
+    if length <= 32:
+        return 32
+    next_power = 1 << (length - 1).bit_length()
+    chunk = 32 if next_power <= 256 else next_power // 8
+    return chunk * ((length - 1) // chunk + 1)
+
+
+def _chacha20(key, nonce, data):
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
+
+    return Cipher(algorithms.ChaCha20(key, b"\0" * 4 + nonce), mode=None).encryptor().update(data)
+
+
+def nip44_conversation_key(secret, pubkey):
+    import hmac
+
+    return hmac.new(b"nip44-v2", shared_x(secret, pubkey), "sha256").digest()
+
+
+def nip44_encrypt(secret, pubkey, plaintext, nonce=None):
+    import base64
+    import hmac
+
+    data = plaintext.encode() if isinstance(plaintext, str) else b""
+    if not 1 <= len(data) <= 65535:
+        raise UserError("The message must be 1 to 65535 bytes.")
+    nonce = nonce or os.urandom(32)
+    key, chacha_nonce, mac_key = _nip44_keys(nip44_conversation_key(secret, pubkey), nonce)
+    padded = len(data).to_bytes(2, "big") + data
+    padded += b"\0" * (2 + _nip44_padded_length(len(data)) - len(padded))
+    ciphertext = _chacha20(key, chacha_nonce, padded)
+    mac = hmac.new(mac_key, nonce + ciphertext, "sha256").digest()
+    return base64.b64encode(b"\x02" + nonce + ciphertext + mac).decode()
+
+
+def nip44_decrypt(secret, pubkey, payload):
+    import base64
+    import binascii
+    import hmac
+
+    try:
+        data = base64.b64decode(payload, validate=True) if isinstance(payload, str) else b""
+    except (binascii.Error, ValueError):
+        data = b""
+    if not 99 <= len(data) <= 65603 or data[0] != 2:
+        raise UserError("Not a NIP-44 version 2 payload.")
+    nonce, ciphertext, mac = data[1:33], data[33:-32], data[-32:]
+    key, chacha_nonce, mac_key = _nip44_keys(nip44_conversation_key(secret, pubkey), nonce)
+    if not hmac.compare_digest(hmac.new(mac_key, nonce + ciphertext, "sha256").digest(), mac):
+        raise UserError("The message could not be decrypted.")
+    padded = _chacha20(key, chacha_nonce, ciphertext)
+    length = int.from_bytes(padded[:2], "big")
+    if not 1 <= length or len(padded) != 2 + _nip44_padded_length(length):
+        raise UserError("The message could not be decrypted.")
+    try:
+        return padded[2:2 + length].decode()
+    except UnicodeDecodeError:
+        raise UserError("The message could not be decrypted.") from None
+
+
+def nip04_encrypt(secret, pubkey, plaintext):
+    import base64
+    from cryptography.hazmat.primitives import padding
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    if not isinstance(plaintext, str):
+        raise UserError("Expected text.")
+    iv = os.urandom(16)
+    padder = padding.PKCS7(128).padder()
+    data = padder.update(plaintext.encode()) + padder.finalize()
+    encryptor = Cipher(algorithms.AES(shared_x(secret, pubkey)), modes.CBC(iv)).encryptor()
+    ciphertext = encryptor.update(data) + encryptor.finalize()
+    return f"{base64.b64encode(ciphertext).decode()}?iv={base64.b64encode(iv).decode()}"
+
+
+def nip04_decrypt(secret, pubkey, payload):
+    import base64
+    import binascii
+    from cryptography.hazmat.primitives import padding
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    try:
+        body, _, iv = (payload if isinstance(payload, str) else "").partition("?iv=")
+        ciphertext, iv = base64.b64decode(body, validate=True), base64.b64decode(iv, validate=True)
+        decryptor = Cipher(algorithms.AES(shared_x(secret, pubkey)), modes.CBC(iv)).decryptor()
+        unpadder = padding.PKCS7(128).unpadder()
+        data = decryptor.update(ciphertext) + decryptor.finalize()
+        return (unpadder.update(data) + unpadder.finalize()).decode()
+    except (binascii.Error, ValueError, UnicodeDecodeError):
+        raise UserError("The message could not be decrypted.") from None
 
 
 # --- Shared helpers ----------------------------------------------------------
@@ -318,6 +480,16 @@ class Nak:
         if not HEX_KEY.match(pubkey):
             raise UserError("The signer returned an invalid public key.")
         return pubkey
+
+    def sign(self, template, signer, home=None):
+        """Sign an event exactly as given, without publishing it."""
+        output = self._call(["event"], stdin=json.dumps(template),
+                            env=self.signer_env(signer, home), timeout=120)
+        events = parse_events(output)
+        if len(events) != 1 or any(events[0].get(name) != value
+                                   for name, value in template.items()):
+            raise UserError("The signer returned an unexpected event.")
+        return events[0]
 
     def fetch(self, pubkey, relays, kinds=(0, 10002)):
         args = ["req", "-a", pubkey, "--limit", "10"]
@@ -468,6 +640,9 @@ class UserManager:
         )
         self.state = Path(self.config["state_dir"])
         self.tokens = {}
+        # Each signed-in user's secret key, held in memory only while their
+        # session lasts, to sign for kwakore.
+        self.held = {}
         self.lock = threading.RLock()
         # Card swipes: the latest public summary, and its secret by opaque id.
         self.cards = threading.Condition(threading.Lock())
@@ -513,14 +688,15 @@ class UserManager:
         secret = secret_hex(nsec)
         pubkey = self.nak.public_key(secret)
         if not password:
-            return self._login(pubkey, "nsec", None)
+            return self._login(pubkey, "nsec", None, secret=secret)
         self._check_password(password)
-        return self._login(pubkey, "ncryptsec", {"ncryptsec": ncryptsec_encrypt(secret, password)})
+        return self._login(pubkey, "ncryptsec", {"ncryptsec": ncryptsec_encrypt(secret, password)},
+                           secret=secret)
 
     def login_ncryptsec(self, ncryptsec, password):
         secret = ncryptsec_decrypt(ncryptsec, password)
         pubkey = self.nak.public_key(secret)
-        return self._login(pubkey, "ncryptsec", {"ncryptsec": ncryptsec.strip()})
+        return self._login(pubkey, "ncryptsec", {"ncryptsec": ncryptsec.strip()}, secret=secret)
 
     def login_bunker(self, uri, username=None, client_key=None):
         """Confirm the bunker's pubkey; nak's client state is kept so the signer remembers us.
@@ -559,9 +735,10 @@ class UserManager:
         if password:
             self._check_password(password)
             ncryptsec = ncryptsec_encrypt(secret, password)
-            result = self._login(pubkey, "ncryptsec", {"ncryptsec": ncryptsec}, new=True)
+            result = self._login(pubkey, "ncryptsec", {"ncryptsec": ncryptsec}, new=True,
+                                 secret=secret)
         else:
-            result = self._login(pubkey, "nsec", None, new=True)
+            result = self._login(pubkey, "nsec", None, new=True, secret=secret)
         result.update(nsec=bech32_encode("nsec", bytes.fromhex(secret)), ncryptsec=ncryptsec)
         return result
 
@@ -586,12 +763,13 @@ class UserManager:
         if len(password or "") < 4:
             raise UserError("Choose a password of at least 4 characters.")
 
-    def _login(self, pubkey, method, material, new=False):
+    def _login(self, pubkey, method, material, new=False, secret=None):
         """Create or reuse the user for ``pubkey`` and issue a login token.
 
         ``material`` is the key to keep (an ncryptsec or bunker URI). None signs
         in without saving anything: a new user is then temporary, and an
-        existing saved user keeps its stored key.
+        existing saved user keeps its stored key. ``secret`` is the decrypted
+        key, held for the session once the token is redeemed.
         """
         username = username_for(pubkey)
         # Network lookups happen before taking the registry lock.
@@ -617,7 +795,7 @@ class UserManager:
                 write_private(keys / "key.json", json.dumps(material) + "\n")
                 entry.update(method=method, temporary=False)
             temporary = entry["temporary"]
-        return self._grant(username, temporary, entry.get("name") or username)
+        return self._grant(username, temporary, entry.get("name") or username, secret)
 
     # Provisioning ------------------------------------------------------------
 
@@ -957,32 +1135,40 @@ class UserManager:
         if entry.get("temporary"):
             return {"ok": True}
         material = json.loads((self.key_dir(username) / "key.json").read_text())
+        secret = None
         if entry["method"] == "bunker":
             pubkey = self.nak.bunker_pubkey(material["bunker"], self.key_dir(username) / "nak")
         else:
-            pubkey = self.nak.public_key(ncryptsec_decrypt(material["ncryptsec"], password or ""))
+            secret = ncryptsec_decrypt(material["ncryptsec"], password or "")
+            pubkey = self.nak.public_key(secret)
         if pubkey != entry["pubkey"]:
             raise UserError("That key belongs to a different identity.")
+        if secret is not None:
+            # Unlocking also restores signing after kwak-userd restarted.
+            self._hold(username, secret)
         return {"ok": True}
 
-    def _grant(self, username, temporary, name):
+    def _grant(self, username, temporary, name, secret=None):
         """A login token, or, if the account is already signed in, a switch to it."""
         session = self.sessions.of_user(username)
         if session is not None:
+            if secret is not None:
+                self._hold(username, secret)
             self._switch_to(session)
             return {"username": username, "switched": True, "temporary": temporary,
                     "name": name}
-        return {"username": username, "token": self.issue(username), "temporary": temporary,
-                "name": name}
+        return {"username": username, "token": self.issue(username, secret),
+                "temporary": temporary, "name": name}
 
     # Tokens and sessions -----------------------------------------------------
 
-    def issue(self, username):
+    def issue(self, username, secret=None):
         token = secrets.token_urlsafe(32)
         with self.lock:
             now = self.clock()
             self.tokens = {t: v for t, v in self.tokens.items() if v["expires"] > now}
-            self.tokens[token] = {"username": username, "expires": now + self.config["token_ttl"]}
+            self.tokens[token] = {"username": username, "expires": now + self.config["token_ttl"],
+                                  "secret": secret}
         return token
 
     def redeem(self, username, token):
@@ -990,10 +1176,21 @@ class UserManager:
             grant = self.tokens.pop(token, None)
         if grant is None or grant["username"] != username or grant["expires"] <= self.clock():
             raise UserError("Invalid or expired login token.")
+        if grant["secret"] is not None:
+            self._hold(username, grant["secret"])
         return {"username": username}
 
+    def _hold(self, username, secret):
+        with self.lock:
+            self.held[username] = secret
+
+    def _drop(self, username):
+        with self.lock:
+            self.held.pop(username, None)
+
     def close_session(self, username):
-        """Logging out of a temporary identity deletes it."""
+        """Logging out forgets the key; logging out of a temporary identity deletes it."""
+        self._drop(username)
         entry = self.managed(username)
         if entry is not None and entry.get("temporary"):
             self.schedule_removal(username)
@@ -1109,6 +1306,52 @@ class UserManager:
             raise UserError("The signer returned an event for a different identity.")
         return {"id": event["id"], "relays": relays}
 
+    # Signing for the session ---------------------------------------------------
+
+    def _signer_client(self, pid):
+        """Whether the process ``pid`` is a program trusted to ask before signing."""
+        try:
+            exe = os.readlink(Path(self.config["proc"]) / str(int(pid)) / "exe")
+        except (OSError, TypeError, ValueError):
+            return False
+        return exe in self.config["signer_clients"]
+
+    def sign_for(self, username, pid, op, request):
+        """Sign, encrypt or decrypt as the signed-in ``username`` for kwakore."""
+        entry = self.managed(username)
+        if entry is None:
+            raise UserError("Not a Nostr identity.")
+        if not self._signer_client(pid):
+            raise UserError("This program may not sign for you.")
+        pubkey, bunker = entry["pubkey"], entry["method"] == "bunker"
+        with self.lock:
+            secret = self.held.get(username)
+        if secret is None and not bunker:
+            raise UserError("No key is held for this session; unlock it to sign.")
+        if op == "signer.get_public_key":
+            return pubkey
+        if op == "signer.sign_event":
+            template = event_template(request["event"])
+            if bunker:
+                material = json.loads((self.key_dir(username) / "key.json").read_text())
+                event = self.nak.sign(template, material["bunker"], self.key_dir(username) / "nak")
+            else:
+                event = sign_event(secret, template)
+            if event.get("pubkey") != pubkey:
+                raise UserError("The signer answered for a different identity.")
+            return event
+        if bunker:
+            # nak takes the text on its command line, where other users could read it.
+            raise UserError("Encryption through a remote signer is not supported yet.")
+        cipher = {
+            "signer.nip44_encrypt": (nip44_encrypt, "plaintext"),
+            "signer.nip44_decrypt": (nip44_decrypt, "ciphertext"),
+            "signer.nip04_encrypt": (nip04_encrypt, "plaintext"),
+            "signer.nip04_decrypt": (nip04_decrypt, "ciphertext"),
+        }
+        function, field = cipher[op]
+        return function(secret, request["pubkey"], request[field])
+
     # Removal -----------------------------------------------------------------
 
     def managed(self, username):
@@ -1133,6 +1376,7 @@ class UserManager:
     def request_signout(self, username):
         if self.managed(username) is None:
             raise UserError("Only Nostr identities can sign out of this computer.")
+        self._drop(username)
         self.schedule_removal(username)
         return {"scheduled": True}
 
@@ -1140,6 +1384,7 @@ class UserManager:
         entry = self.managed(username)
         if entry is None:
             raise UserError(f"{username} is not a removable Nostr identity.")
+        self._drop(username)
         uid = str(entry["uid"])
         if self._exists(username):
             self._command(["loginctl", "terminate-user", username], check=False)
@@ -1196,6 +1441,9 @@ GREETER_OPS = {"list_known", "login_nsec", "login_ncryptsec", "login_bunker",
                "create_identity", "unlock", "wait_card", "card_login", "switch_done"}
 CARD_OPS = {"card_swipe"}
 ROOT_OPS = GREETER_OPS | {"redeem", "close_session", "remove", "list"}
+IDENTITY_OPS = {"signout", "account_settings", "publish_settings", "check_unlock"}
+SIGNER_OPS = {"signer.get_public_key", "signer.sign_event", "signer.nip44_encrypt",
+              "signer.nip44_decrypt", "signer.nip04_encrypt", "signer.nip04_decrypt"}
 
 
 def peer_credentials(connection):
@@ -1233,12 +1481,13 @@ class Server:
             (role == "root" and op in ROOT_OPS)
             or (role == "greeter" and op in GREETER_OPS)
             or (role == "card" and op in CARD_OPS)
-            or (role == "identity" and op in {"signout", "account_settings", "publish_settings",
-                                              "check_unlock"})
+            or (role == "identity" and op in IDENTITY_OPS | SIGNER_OPS)
         )
         if not allowed:
             raise UserError("Permission denied.")
         m, r = self.manager, request
+        if op in SIGNER_OPS:
+            return m.sign_for(name, pid, op, r)
         handlers = {
             "list_known": lambda: m.known(),
             "list": lambda: m.known(),
@@ -1266,7 +1515,8 @@ class Server:
             try:
                 pid, uid = peer_credentials(connection)
                 stream = connection.makefile("rwb")
-                line = stream.readline(1 << 16)
+                # Events to sign can be long-form articles.
+                line = stream.readline(1 << 20)
                 request = json.loads(line)
                 if not isinstance(request, dict):
                     raise ValueError

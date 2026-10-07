@@ -143,6 +143,15 @@ in
       defaultText = lib.literalExpression ''[ "nostr" ] ++ lib.optional config.networking.networkmanager.enable "networkmanager"'';
       description = "Supplementary groups of every Nostr identity user.";
     };
+
+    signerClients = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      description = ''
+        Executables, as /proc/PID/exe shows them, that may ask kwak-userd to
+        sign as the user they run as. They must ask the user first.
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -159,6 +168,7 @@ in
       "kwak/userd.json".text = builtins.toJSON {
         inherit (cfg) relays groups;
         card_user = "kwak-cards";
+        signer_clients = cfg.signerClients;
       };
     }
     // lib.optionalAttrs (cfg.homeFiles != { }) {

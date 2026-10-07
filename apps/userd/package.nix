@@ -11,7 +11,12 @@
   kbd,
 }:
 let
-  python = python3.withPackages (ps: [ ps.pynacl ]);
+  # pynacl for NIP-49; coincurve and cryptography to sign for kwakore.
+  python = python3.withPackages (ps: [
+    ps.pynacl
+    ps.coincurve
+    ps.cryptography
+  ]);
 in
 stdenvNoCC.mkDerivation {
   pname = "kwak-userd";

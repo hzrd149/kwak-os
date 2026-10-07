@@ -83,6 +83,10 @@ class FakeNak:
         self.published = (kind, content, tags, relays, signer, home)
         return {"kind": kind, "pubkey": self.pubkey, "id": "ab" * 32}
 
+    def sign(self, template, signer, home=None):
+        self.signed = (template, signer, home)
+        return {**template, "pubkey": self.pubkey, "id": "ab" * 32, "sig": "cd" * 64}
+
 
 class FakeSessions:
     """Sessions on seat0; starts with the sign-in screen's greeter on screen."""
@@ -950,6 +954,159 @@ class PermissionTests(ManagerCase):
     def test_identity_signs_out_only_itself(self):
         self.server.dispatch(30000, {"op": "signout", "username": "kwak"})
         self.assertEqual(self.commands("systemd-run")[-1][-3:], ["/bin/kwak-userd", "remove", USER])
+
+
+# The real public key of "11" * 32, for tests that sign.
+SIGNING_PUBKEY = "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"
+SIGNING_USER = "n4f355bdcb7"
+KWAKORE = "/nix/store/kwakore/bin/.kwakore-daemon-wrapped"
+
+
+class CryptoTests(unittest.TestCase):
+    def test_nip44_spec_vector(self):
+        payload = userd.nip44_encrypt("00" * 31 + "01", self.public("00" * 31 + "02"), "a",
+                                      nonce=bytes.fromhex("00" * 31 + "01"))
+        self.assertEqual(payload, "AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABee0G5VSK0/9YypIObAtDKfYE"
+                                  "AjD35uVkHyB0F4DwrcNaCXlCWZKaArsGrY6M9wnuTMxWfp1RTN9Xga8no+kF5Vsb")
+        self.assertEqual(
+            userd.nip44_conversation_key("00" * 31 + "01", self.public("00" * 31 + "02")).hex(),
+            "c41c775356fd92eadc63ff5a0dc1da211b268cbea22316767095b2871ea1412d")
+
+    @staticmethod
+    def public(secret):
+        from coincurve import PublicKeyXOnly
+
+        return PublicKeyXOnly.from_secret(bytes.fromhex(secret)).format().hex()
+
+    def test_round_trips_between_two_keys(self):
+        alice, bob = "11" * 32, "22" * 32
+        for encrypt, decrypt in ((userd.nip44_encrypt, userd.nip44_decrypt),
+                                 (userd.nip04_encrypt, userd.nip04_decrypt)):
+            for text in ("hi", "ü" * 40, "x" * 5000):
+                sealed = encrypt(alice, self.public(bob), text)
+                self.assertEqual(decrypt(bob, self.public(alice), sealed), text)
+        with self.assertRaises(userd.UserError):
+            userd.nip44_decrypt(bob, self.public(alice), "AgAA")
+        sealed = userd.nip44_encrypt(alice, self.public(bob), "hi")
+        with self.assertRaises(userd.UserError):
+            userd.nip44_decrypt("33" * 32, self.public(alice), sealed)
+
+    def test_signed_event_verifies(self):
+        from coincurve import PublicKeyXOnly
+
+        template = {"kind": 1, "created_at": 1700000000, "tags": [["t", "kwak"]],
+                    "content": "héllo\n\"quoted\""}
+        event = userd.sign_event("11" * 32, template)
+        self.assertEqual(event["pubkey"], SIGNING_PUBKEY)
+        self.assertEqual(event["id"], userd.event_id(SIGNING_PUBKEY, template))
+        self.assertTrue(PublicKeyXOnly(bytes.fromhex(event["pubkey"])).verify(
+            bytes.fromhex(event["sig"]), bytes.fromhex(event["id"])))
+
+    def test_event_template_is_checked(self):
+        for event in ({"kind": True, "created_at": 1, "content": ""},
+                      {"kind": 70000, "created_at": 1, "content": ""},
+                      {"kind": 1, "created_at": "1", "content": ""},
+                      {"kind": 1, "created_at": 1, "content": 5},
+                      {"kind": 1, "created_at": 1, "content": "", "tags": [["e", 1]]},
+                      "event"):
+            with self.assertRaises(userd.UserError):
+                userd.event_template(event)
+        self.assertEqual(userd.event_template({"kind": 1, "created_at": 1, "content": "",
+                                               "id": "x", "sig": "y"}),
+                         {"kind": 1, "created_at": 1, "tags": [], "content": ""})
+
+
+class SignerTests(ManagerCase):
+    """Signing for kwakore, as the signed-in user."""
+
+    def setUp(self):
+        super().setUp()
+        self.nak.pubkey = SIGNING_PUBKEY
+        proc = Path(self.directory.name) / "proc"
+        for pid, exe in (("4242", KWAKORE), ("4243", "/run/current-system/sw/bin/python3")):
+            (proc / pid).mkdir(parents=True)
+            (proc / pid / "exe").symlink_to(exe)
+        self.config.update(proc=str(proc), signer_clients=[KWAKORE])
+        self.server = userd.Server(self.manager)
+
+    def sign(self, op="signer.get_public_key", pid=4242, uid=30000, **fields):
+        return self.server.dispatch(uid, {"op": op, **fields}, pid)
+
+    def log_in(self):
+        token = self.manager.login_ncryptsec(
+            userd.ncryptsec_encrypt("11" * 32, "hunter2", log_n=10), "hunter2")["token"]
+        self.manager.redeem(SIGNING_USER, token)
+
+    def test_key_is_held_only_once_the_token_is_redeemed(self):
+        token = self.manager.login_ncryptsec(
+            userd.ncryptsec_encrypt("11" * 32, "hunter2", log_n=10), "hunter2")["token"]
+        with self.assertRaisesRegex(userd.UserError, "No key is held"):
+            self.sign()
+        self.manager.redeem(SIGNING_USER, token)
+        self.assertEqual(self.sign(), SIGNING_PUBKEY)
+
+    def test_signs_and_encrypts_as_the_user(self):
+        self.log_in()
+        event = self.sign("signer.sign_event",
+                          event={"kind": 1, "created_at": 1700000000, "tags": [], "content": "hi"})
+        self.assertEqual(event, userd.sign_event("11" * 32, userd.event_template(event)) | {
+            "sig": event["sig"]})
+        peer = CryptoTests.public("22" * 32)
+        sealed = self.sign("signer.nip44_encrypt", pubkey=peer, plaintext="note")
+        self.assertEqual(userd.nip44_decrypt("22" * 32, SIGNING_PUBKEY, sealed), "note")
+        self.assertEqual(self.sign("signer.nip44_decrypt", pubkey=peer, ciphertext=sealed), "note")
+        sealed = self.sign("signer.nip04_encrypt", pubkey=peer, plaintext="old note")
+        self.assertEqual(self.sign("signer.nip04_decrypt", pubkey=peer, ciphertext=sealed),
+                         "old note")
+
+    def test_only_kwakore_may_sign(self):
+        self.log_in()
+        for pid in (4243, 4244, None):
+            with self.assertRaisesRegex(userd.UserError, "may not sign"):
+                self.sign(pid=pid)
+
+    def test_other_callers_are_refused(self):
+        self.log_in()
+        self.system.accounts["kwak"] = Account("kwak", 1000, "/home/kwak")
+        for uid in (0, 990, 1000):
+            with self.assertRaisesRegex(userd.UserError, "Permission denied"):
+                self.sign(uid=uid)
+
+    def test_logout_and_signout_forget_the_key(self):
+        self.log_in()
+        self.manager.close_session(SIGNING_USER)
+        with self.assertRaisesRegex(userd.UserError, "No key is held"):
+            self.sign()
+        self.manager.check_unlock(SIGNING_USER, "hunter2")
+        self.assertEqual(self.sign(), SIGNING_PUBKEY)
+        self.manager.request_signout(SIGNING_USER)
+        with self.assertRaisesRegex(userd.UserError, "No key is held"):
+            self.sign()
+
+    def test_guest_key_is_held_for_its_session(self):
+        token = self.manager.login_nsec("11" * 32)["token"]
+        self.manager.redeem(SIGNING_USER, token)
+        self.assertEqual(self.sign(), SIGNING_PUBKEY)
+
+    def test_switching_to_a_signed_in_account_holds_its_key(self):
+        self.log_in()
+        self.manager.close_session(SIGNING_USER)
+        self.sessions.add("7", SIGNING_USER)
+        self.manager.unlock(SIGNING_USER, "hunter2")
+        self.assertEqual(self.sign(), SIGNING_PUBKEY)
+
+    def test_bunker_signs_through_nak_but_does_not_encrypt(self):
+        token = self.manager.login_bunker("bunker://abc?relay=wss%3A%2F%2Fr")["token"]
+        self.manager.redeem(SIGNING_USER, token)
+        template = {"kind": 1, "created_at": 1, "tags": [], "content": "hi"}
+        self.assertEqual(self.sign("signer.sign_event", event=template)["pubkey"], SIGNING_PUBKEY)
+        self.assertEqual(self.nak.signed[0], template)
+        self.assertEqual(self.nak.signed[1], "bunker://abc?relay=wss%3A%2F%2Fr")
+        with self.assertRaisesRegex(userd.UserError, "not supported"):
+            self.sign("signer.nip44_encrypt", pubkey=CryptoTests.public("22" * 32), plaintext="x")
+        self.nak.pubkey = OTHER
+        with self.assertRaisesRegex(userd.UserError, "different identity"):
+            self.sign("signer.sign_event", event=template)
 
 
 if __name__ == "__main__":

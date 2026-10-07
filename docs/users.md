@@ -116,6 +116,27 @@ Your Nostr identity itself is not affected.
 Temporary users are removed the same way when their session closes. If the machine
 crashes first, `kwak-userd-cleanup.service` removes them at the next boot.
 
+## Napplets
+
+Every Nostr user gets [kwakore](https://github.com/hzrd149/kwakore), which runs
+napplets in their own windows. It is a user service, started the first time it is
+used (the `kwakore` command or a napplet's launcher entry). Napplets are already
+signed in as you: kwakore's `system` signer asks `kwak-userd` to sign, so you never
+give kwakore your key.
+
+- After you sign in, kwak-userd keeps your secret key **in memory only**, until you
+  log out or sign out. It is never written down unencrypted. Bunker identities keep
+  using the bunker, which approves each signature.
+- Only kwakore's daemon may ask: kwak-userd checks the calling program
+  (`/proc/PID/exe` against `kwak.nostrUsers.signerClients`) as well as the user.
+  kwakore asks you in the napplet's window before it signs, encrypts, or decrypts.
+- If kwak-userd restarts during a session, it no longer holds your key. Lock the
+  screen and unlock it with your password, and signing works again.
+- Bunker identities can sign but cannot encrypt or decrypt yet.
+
+`kwakore signer status` shows the signer. `kwakore signer switch none` signs napplets
+out for good, and `kwakore signer switch system` signs them back in.
+
 ## How it works
 
 - `kwak-userd` is a root service on `/run/kwak-userd.sock` and knows who is calling
@@ -124,7 +145,8 @@ crashes first, `kwak-userd-cleanup.service` removes them at the next boot.
   - Root may redeem login tokens and remove users.
   - A Nostr user may only sign themselves out, and check their own password or
     signer to unlock their locked session (hyprlock's PAM stack runs
-    `kwak-userd pam-unlock`).
+    `kwak-userd pam-unlock`). Their kwakore daemon may also sign as them (see
+    [Napplets](#napplets)).
   - The `kwak-cards` reader service may only pass on card swipes.
 - **Sign-in** gives the greeter a single-use login token, valid for 60 seconds. The
   greeter gives the token to greetd as the password, and `pam_exec` checks it with
