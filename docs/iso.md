@@ -2,13 +2,12 @@
 
 ## Implementation status
 
-The offline installer changes are a work in progress. ISO builds and the six
-installer unit tests have passed locally, and a production image has booted into
-the desktop from simulated USB storage. A complete offline installation followed
-by a successful reboot/login has not yet been verified. The latest Xwayland/root
-launcher fix and the new USB wizard-autostart regression test also remain
-unverified. Treat the installation walkthrough below as the intended flow until
-these end-to-end checks pass.
+The installer now requires internet access and uses standard flake installation.
+Earlier images built successfully and booted into the desktop from simulated
+USB storage, but the revised online image and a complete install/reboot/login
+have not yet been verified. The latest Xwayland/root launcher fix and the USB
+wizard-autostart regression test also remain unverified. Treat the installation
+walkthrough below as the intended flow until these end-to-end checks pass.
 
 kwakOS uses the ISO builder already included in its locked Nixpkgs input. The
 `iso` host imports NixOS's `installation-cd-graphical-calamares.nix` alongside the same base and
@@ -22,7 +21,6 @@ On x86_64 Linux with Nix and flakes enabled:
 ```sh
 nix build .#iso --out-link result-iso
 nix build --no-link .#checks.x86_64-linux.desktop-config .#checks.x86_64-linux.iso-config .#checks.x86_64-linux.installer
-nix build --no-link .#checks.x86_64-linux.installer-offline
 nix build --no-link .#checks.x86_64-linux.iso-usb-boot
 nix flake check --no-build
 sha256sum result-iso/iso/*.iso
@@ -53,16 +51,17 @@ testing on the intended machine.
 Calamares opens automatically in the live desktop. It is also available as
 **Install KwakOS** in the launcher (Super+Space). It walks through location,
 keyboard, account, disk selection, and a final summary/confirmation. The guided
-erase-disk path creates the partitions automatically. Installation is offline:
-there is no required internet check or need to clone the repository.
+erase-disk path creates the partitions automatically. Internet access is required
+and checked by the welcome page. Wired connections normally connect automatically;
+for Wi-Fi, open **Connect to Network** from the launcher and choose **Activate a
+connection**. There is no need to clone the repository.
 See the [installation walkthrough](../README.md#install-on-a-physical-machine).
 
-## Offline installation design
+## Installation design
 
-The ISO includes the physical target's prebuilt package closure, all locked flake
-input sources and revision metadata, Hyprland's evaluation-time source, and the
-tools used to assemble the personalized system and initrd. The image does not
-include the complete source/compiler bootstrap graph of every desktop package.
+The ISO contains the live desktop, standard NixOS installation tools, and the
+release's KwakOS source configuration and lock file. It does not bundle a separate
+physical-system closure or maintain a custom offline flake evaluator.
 
 The Calamares NixOS job copies the project to `/etc/nixos/kwak-os`, replaces the
 hardware template with detected filesystems/kernel modules, and writes
@@ -71,16 +70,16 @@ administrator, hostname, locale, timezone, console/Hyprland keyboard, and
 encrypted-swap devices where applicable. Passwords are set by Calamares's users
 job rather than embedded in the Nix store.
 
-`packages/offline-flake.nix` evaluates the locked input graph from the bundled
-sources, retaining revision metadata so package identities match the image's
-prebuilt binaries. This avoids dependency on a pre-populated Nix fetcher cache.
-`/etc/nixos/system.nix` points to this evaluation and is also usable for later
-rebuilds. The input sources are copied to the target store and pinned with
-garbage-collection roots under `/nix/var/nix/gcroots/kwakos-inputs`.
+The job runs `nixos-install --flake /TARGET/etc/nixos/kwak-os#physical` with the
+appropriate target root and `--no-update-lock-file`. Nix fetches the locked inputs
+and missing dependencies normally, using its configured binary caches. Packages
+not available in those caches may compile locally. No custom public binary cache
+is configured by this change.
 
-Installation disables remote substituters and uses the USB's local store via
-`nixos-install`. Build work and temporary store files go on the destination disk.
-The installed root filesystem and bootloader are independent of the USB.
+Build work and temporary store files go on the destination disk. The installed
+root filesystem and bootloader are independent of the USB. Later rebuilds use
+`sudo nixos-rebuild switch --flake /etc/nixos/kwak-os#physical`; updating inputs is
+an explicit `nix flake update` operation on that saved flake.
 
 ## GitHub builds and packages
 
@@ -89,9 +88,9 @@ select a successful run, and download **kwakos-iso-…** under **Artifacts**.
 Sign in to GitHub, extract the downloaded ZIP, then flash the `.iso` file inside.
 The run summary repeats the USB/UEFI installation instructions.
 
-The offline image exceeds GitHub Releases' 2 GiB per-file asset limit. A single
-public `.iso` download needs a separate large-file host; the current workflow
-keeps the browser artifact and OCI package download paths.
+GitHub Releases has a 2 GiB per-file asset limit. The revised image's size has not
+yet been measured; the current workflow keeps the browser artifact and OCI
+package download paths, which support larger images.
 
 The [ISO workflow](../.github/workflows/iso.yml) runs **only when a release tag
 matching `v*` is pushed**, such as `v0.1.0`. Branch commits and pull requests do
@@ -101,10 +100,8 @@ GitHub Release creation.
 
 The build job checks the Nix configurations, the built Hyprland configuration,
 the settings/installer tests, and the live media's account/storage policy. It also
-installs with IP networking disabled in a UEFI VM and boots the resulting disk,
-checking the selected account, hostname, timezone, keyboard, and greeter.
-This backend test adds test-only console instrumentation; it does not click
-through the graphical wizard. A separate test boots the production ISO attached
+checks target-configuration preparation and the pinned flake install command.
+A separate test boots the production ISO attached
 as USB storage and uses OCR to verify that the KwakOS wizard opens automatically.
 It builds the ISO, checks BIOS and
 UEFI El Torito boot entries, enforces GHCR's layer-size limit, and uploads an
@@ -151,6 +148,7 @@ Before installing on a real machine, test boot and graphics on that hardware.
 
 For release qualification, also boot the actual image attached as USB storage,
 verify that exactly one installer opens, complete the guided erase-disk wizard
-with networking disabled, and reboot without the USB. Test legacy-mode rejection
+with networking enabled, and reboot without the USB. Verify that the welcome page
+blocks installation without internet. Test legacy-mode rejection
 and a non-US keyboard; exercise encrypted and advanced filesystem layouts before
 claiming those paths are qualified on hardware.

@@ -42,9 +42,6 @@ jobs:
             .#checks.x86_64-linux.kwak-settings .#checks.x86_64-linux.installer
           nix flake check --no-build --no-update-lock-file
 
-      - name: Install offline and boot the installed UEFI system
-        run: nix build --print-build-logs --no-link --no-update-lock-file .#checks.x86_64-linux.installer-offline
-
       - name: Build the live ISO
         run: nix build --print-build-logs --no-update-lock-file .#iso --out-link result-iso
 
@@ -85,7 +82,7 @@ jobs:
             printf '## Download and install KwakOS\n\n'
             printf '[Download the ISO artifact](%s).\n\n' "$ARTIFACT_URL"
             printf 'Download the artifact ZIP, extract it, and flash the `.iso` using Etcher or Rufus (DD mode).\n\n'
-            printf 'Boot the USB in **UEFI mode**. The graphical installer opens automatically; internet is not required.\n\n'
+            printf 'Boot the USB in **UEFI mode** and connect to the internet. The graphical installer opens automatically.\n\n'
             printf 'Choose your settings, account, and destination disk. Restart after installation and remove the USB as the computer restarts.\n\n'
             printf 'Artifacts are retained for 90 days. GitHub requires sign-in for Actions downloads.\n'
           } >> "$GITHUB_STEP_SUMMARY"

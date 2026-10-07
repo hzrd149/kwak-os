@@ -30,7 +30,7 @@
 
     time.timeZone = lib.mkDefault "America/Chicago";
     i18n.defaultLocale = lib.mkDefault "en_US.UTF-8";
-    # Reuse the same prebuilt locale archive for every installer language choice.
+    # Support every language offered by the graphical installer.
     i18n.supportedLocales = [ "all" ];
     console.keyMap = lib.mkDefault "us";
     services.xserver.xkb.layout = lib.mkDefault "us";

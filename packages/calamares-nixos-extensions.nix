@@ -1,7 +1,6 @@
 {
   calamares-nixos-extensions,
   kwakSource,
-  kwakInputs,
 }:
 calamares-nixos-extensions.overrideAttrs (old: {
   patches = (old.patches or [ ]) ++ [ ./calamares-kwakos.patch ];
@@ -9,7 +8,6 @@ calamares-nixos-extensions.overrideAttrs (old: {
   postPatch = (old.postPatch or "") + ''
     substituteInPlace modules/nixos/main.py \
       --replace-fail '@KWAK_SOURCE@' '${kwakSource}' \
-      --replace-fail '@KWAK_INPUTS@' '${kwakInputs}' \
       --replace-fail '@KWAK_MODULE@' "$out/lib/calamares/modules/nixos"
     cp ${./installer/kwak_installer.py} modules/nixos/kwak_installer.py
     substituteInPlace modules/nixos/main.py \

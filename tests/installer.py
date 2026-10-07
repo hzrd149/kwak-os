@@ -1,7 +1,6 @@
 """Installer configuration boundary tests; no disks are touched."""
 
 import importlib.util
-import json
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -83,28 +82,29 @@ class InstallerTests(unittest.TestCase):
             (source / "hosts/physical").mkdir(parents=True)
             (root / "etc/nixos").mkdir(parents=True)
             (source / "flake.nix").write_text("source")
+            (source / "flake.lock").write_text("release pins")
             (root / "etc/nixos/hardware-configuration.nix").write_text("detected hardware")
-            manifest = base / "inputs.json"
-            manifest.write_text(json.dumps({"nixpkgs": {"path": "/nix/store/example-source", "metadata": {}}}))
             with self.assertRaisesRegex(ValueError, "UEFI"):
-                installer.prepare(root, source, manifest, Storage(firmwareType="bios"), {})
+                installer.prepare(root, source, Storage(firmwareType="bios"), {})
             self.assertFalse((root / "etc/nixos/kwak-os").exists())
-            target = installer.prepare(root, source, manifest, Storage(), {})
+            target = installer.prepare(root, source, Storage(), {})
             self.assertEqual((target / "hosts/physical/hardware-configuration.nix").read_text(),
                              "detected hardware")
             self.assertIn('kwak.adminUser = "alice"',
                           (target / "hosts/physical/installer-settings.nix").read_text())
-            self.assertIn("offline-flake.nix", (root / "etc/nixos/system.nix").read_text())
+            self.assertEqual((target / "flake.lock").read_text(), "release pins")
             with self.assertRaisesRegex(ValueError, "already exists"):
-                installer.prepare(root, source, manifest, Storage(), {})
+                installer.prepare(root, source, Storage(), {})
 
-    def test_install_uses_local_inputs_and_target_build_directory(self):
+    def test_install_uses_pinned_flake_and_target_build_directory(self):
         command = installer.install_command("/tmp/calamares-target", "/run/kwakos-builds-test")
         self.assertIn("--no-channel-copy", command)
-        self.assertNotIn("--flake", command)
+        self.assertEqual(command[command.index("--flake") + 1],
+                         "/tmp/calamares-target/etc/nixos/kwak-os#physical")
+        self.assertIn("--no-update-lock-file", command)
+        self.assertNotIn("--file", command)
         self.assertIn("/run/kwakos-builds-test", command)
-        index = command.index("substituters")
-        self.assertEqual(command[index + 1], "")
+        self.assertNotIn("substituters", command)
 
 
 if __name__ == "__main__":

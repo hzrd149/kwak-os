@@ -6,25 +6,24 @@
 +sys.path.insert(0, "@KWAK_MODULE@")
 +import kwak_installer
  import subprocess
-@@ -1044,2 +1047,15 @@
+@@ -1044,2 +1047,14 @@
 -    # Write the configuration.nix file
 -    libcalamares.utils.host_env_process_output(["cp", "/dev/stdin", config], None, cfg)
 +    # Prepare the bundled KwakOS configuration rather than the generic distro.
 +    try:
 +        kwak_installer.prepare(
-+            root_mount_point, "@KWAK_SOURCE@", "@KWAK_INPUTS@", gs, variables
++            root_mount_point, "@KWAK_SOURCE@", gs, variables
 +        )
-+        status = _("Copying offline installation files")
++        status = _("Preparing KwakOS configuration")
 +        libcalamares.job.setprogress(0.07)
-+        kwak_installer.retain_inputs(root_mount_point, "@KWAK_INPUTS@")
 +        build_directory = kwak_installer.build_directory(root_mount_point)
 +    except (OSError, ValueError, subprocess.CalledProcessError) as e:
 +        return (_("Failed to prepare KwakOS configuration"), str(e))
 +
-+    # Build from local inputs and the USB's store. No network is necessary.
++    # Install the release-pinned flake using normal fetchers and binary caches.
 +    nixosInstallCmd = kwak_installer.install_command(root_mount_point, build_directory)
 +
-@@ -1059,21 +1075,0 @@
+@@ -1059,21 +1074,0 @@
 -    nixosInstallCmd = [ "pkexec" ]
 -    nixosInstallCmd.extend(generateProxyStrings())
 -    nixosInstallCmd.extend(
@@ -46,8 +45,14 @@
 -            "/nix/var/nix/builds",
 -        ]
 -    )
-@@ -1118,2 +1113,4 @@
+@@ -1115,8 +1109,10 @@
+         exit = proc.wait()
+         if exit != 0:
+             return (_("nixos-install failed"), _(output))
      except:
          return (_("nixos-install failed"), _("Installation failed to complete"))
 +    finally:
 +        kwak_installer.release_build_directory(build_directory)
+ 
+     libcalamares.job.setprogress(INSTALL_PROGRESS_END)
+     return None

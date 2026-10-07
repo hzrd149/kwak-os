@@ -29,26 +29,6 @@
     }:
     let
       system = "x86_64-linux";
-      # Resolve every locked input while building the image. The installer uses
-      # these exact paths/metadata without needing Nix's fetcher cache or internet.
-      lockedInputs = (builtins.fromJSON (builtins.readFile ./flake.lock)).nodes;
-      installerInputs = pkgs.writeText "kwakos-offline-inputs.json" (
-        builtins.toJSON (
-          nixpkgs.lib.mapAttrs (
-            _: node:
-            let
-              info = builtins.fetchTree node.locked;
-            in
-            {
-              path = info.outPath;
-              metadata = builtins.removeAttrs info [
-                "outPath"
-                "__toString"
-              ];
-            }
-          ) (nixpkgs.lib.filterAttrs (_: node: node ? locked) lockedInputs)
-        )
-      );
       desktopHyprland =
         hyprland.inputs.nixpkgs.legacyPackages.${system}.callPackage ./packages/hyprland.nix
           {
@@ -80,7 +60,6 @@
         calamares-nixos-extensions = final.callPackage ./packages/calamares-nixos-extensions.nix {
           calamares-nixos-extensions = prev.calamares-nixos-extensions;
           kwakSource = self.outPath;
-          kwakInputs = installerInputs;
         };
         calamares-nixos =
           let
@@ -155,56 +134,7 @@
       nixosConfigurations = {
         vm = mkHost ./hosts/vm [ ];
         physical = mkHost ./hosts/physical [ ];
-        iso = mkHost ./hosts/iso [
-          {
-            # Prebuilt target packages and the tools used to assemble personalized
-            # activation scripts, users, filesystems and initrd. Avoid bundling the
-            # entire compiler/source bootstrap graph of every desktop application.
-            isoImage.storeContents = [
-              self.nixosConfigurations.physical.config.system.build.toplevel
-              installerInputs
-              pkgs.hyprland.src
-              pkgs.stdenvNoCC
-              pkgs.stdenv
-              pkgs.bintools
-              pkgs.makeWrapper
-              pkgs.perl
-              pkgs.python3
-              pkgs.jq
-              pkgs.rsync
-              pkgs.kmod
-              pkgs.cpio
-              pkgs.zstd
-              pkgs.xz
-              pkgs.gzip
-              pkgs.cryptsetup
-              pkgs.btrfs-progs
-              pkgs.xfsprogs
-              pkgs.f2fs-tools
-              pkgs.dosfstools
-              pkgs.shellcheck-minimal
-              pkgs.lndir
-              pkgs.kbd.dev
-              pkgs.kmod.dev
-              pkgs.systemdMinimal.out
-              pkgs.perlPackages.ConfigIniFiles
-              pkgs.perlPackages.FileSlurp
-              pkgs.perlPackages.JSON
-              pkgs.perlPackages.ListCompare
-              pkgs.perlPackages.XMLLibXML
-              pkgs.libxml2.bin
-              pkgs.libxslt.bin
-              pkgs.docbook5
-              pkgs.docbook_xsl_ns
-              pkgs.texinfo
-              (pkgs.python3.withPackages (p: [ p.mistune ]))
-              pkgs.mypy
-              self.nixosConfigurations.physical.config.boot.bootspec.package
-              self.nixosConfigurations.physical.config.hardware.cpu.intel.microcodePackage
-              self.nixosConfigurations.physical.config.hardware.cpu.amd.microcodePackage
-            ];
-          }
-        ];
+        iso = mkHost ./hosts/iso [ ];
       };
 
       packages.${system} = {
@@ -221,11 +151,7 @@
           ;
         vm = self.nixosConfigurations.vm.config.system.build.vm;
         iso = self.nixosConfigurations.iso.config.system.build.isoImage;
-        installer-inputs = installerInputs;
         installer = pkgs.calamares-nixos-extensions;
-        installer-store = pkgs.closureInfo {
-          rootPaths = self.nixosConfigurations.iso.config.isoImage.storeContents;
-        };
         default = self.packages.${system}.vm;
       };
 
@@ -262,13 +188,6 @@
           PYTHON
           touch $out
         '';
-        installer-offline = import ./tests/installer-offline.nix {
-          inherit pkgs installerInputs;
-          source = self.outPath;
-          storePaths = self.nixosConfigurations.iso.config.isoImage.storeContents;
-          expectedPortal = builtins.unsafeDiscardStringContext self.nixosConfigurations.physical.config.programs.hyprland.portalPackage.drvPath;
-          expectedHyprland = builtins.unsafeDiscardStringContext pkgs.hyprland.drvPath;
-        };
         iso-config =
           let
             live = self.nixosConfigurations.iso.config;
