@@ -114,23 +114,60 @@
         inherit system;
         overlays = [ desktopOverlay ];
       };
+      kwakModule = {
+        imports = [
+          ./modules/base.nix
+          (
+            {
+              config,
+              lib,
+              pkgs,
+              ...
+            }:
+            import ./modules/desktop.nix {
+              inherit
+                config
+                lib
+                pkgs
+                hyprland
+                ;
+            }
+          )
+          ./modules/users.nix
+          (
+            {
+              config,
+              lib,
+              pkgs,
+              ...
+            }:
+            import ./modules/napplets.nix {
+              inherit
+                config
+                lib
+                pkgs
+                kwakore
+                ;
+            }
+          )
+        ];
+        nixpkgs.overlays = [ desktopOverlay ];
+      };
       mkHost =
         host: extraModules:
         nixpkgs.lib.nixosSystem {
           inherit system;
-          specialArgs = { inherit hyprland kwakore; };
           modules = [
-            { nixpkgs.overlays = [ desktopOverlay ]; }
-            ./modules/base.nix
-            ./modules/desktop.nix
-            ./modules/users.nix
-            ./modules/napplets.nix
+            kwakModule
+            { system.stateVersion = "26.05"; }
             host
           ]
           ++ extraModules;
         };
     in
     {
+      nixosModules.default = kwakModule;
+
       nixosConfigurations = {
         vm = mkHost ./hosts/vm [ ];
         physical = mkHost ./hosts/physical [ ];
@@ -164,8 +201,45 @@
         default = self.apps.${system}.vm;
       };
 
+      devShells.${system}.default = pkgs.mkShell {
+        packages = [ pkgs.nixos-rebuild ];
+      };
+
       formatter.${system} = pkgs.nixfmt-tree;
       checks.${system} = {
+        shared-module =
+          let
+            machine = nixpkgs.lib.nixosSystem {
+              inherit system;
+              modules = [
+                self.nixosModules.default
+                ./hosts/physical
+                {
+                  system.stateVersion = "24.11";
+                  networking.hostName = "existing-machine";
+                  kwak.adminUser = "admin";
+                  services.openssh.settings = {
+                    PermitRootLogin = "prohibit-password";
+                    PasswordAuthentication = false;
+                  };
+                  users.users.root.openssh.authorizedKeys.keys = [ "ssh-ed25519 test-key" ];
+                }
+              ];
+            };
+            cfg = machine.config;
+          in
+          assert cfg.system.stateVersion == "24.11";
+          assert cfg.networking.hostName == "existing-machine";
+          assert cfg.users.users.admin.isNormalUser;
+          assert !(cfg.users.users ? kwak);
+          assert cfg.services.openssh.enable && cfg.services.openssh.openFirewall;
+          assert cfg.services.openssh.settings.PermitRootLogin == "prohibit-password";
+          assert !cfg.services.openssh.settings.PasswordAuthentication;
+          assert cfg.users.users.root.openssh.authorizedKeys.keys == [ "ssh-ed25519 test-key" ];
+          assert cfg.services.greetd.enable && cfg.programs.hyprland.enable;
+          assert cfg.programs.kwakore.enable;
+          assert builtins.isString cfg.system.build.toplevel.drvPath;
+          pkgs.runCommand "kwak-shared-module-check" { } "touch $out";
         iso-usb-boot = import ./tests/iso-usb-boot.nix {
           inherit pkgs;
           iso = self.packages.${system}.iso;
