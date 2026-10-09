@@ -138,6 +138,13 @@ fi
 # Check input names through Nix, not text matching or editing custom Nix code.
 KWAKOS_FLAKE="$flake" "${nix_cmd[@]}" eval --raw --impure --expr \
   'let f = builtins.getFlake (builtins.getEnv "KWAKOS_FLAKE"); in f.inputs.kwakOS.outPath' >/dev/null
+# Remote git inputs are fetched with the git binary, which stock NixOS lacks
+# until kwakOS installs it; borrow it from kwakOS's pinned nixpkgs.
+if ! command -v git >/dev/null; then
+  git_path=$(KWAKOS_FLAKE="$flake" "${nix_cmd[@]}" build --no-link --print-out-paths --impure --expr \
+    'let f = builtins.getFlake (builtins.getEnv "KWAKOS_FLAKE"); in f.inputs.kwakOS.inputs.nixpkgs.legacyPackages.x86_64-linux.git')
+  export PATH="$git_path/bin:$PATH"
+fi
 "${nix_cmd[@]}" flake update kwakOS --flake "$flake"
 nixos-rebuild "$action" --flake "$flake#$host" --no-update-lock-file
 trap - ERR

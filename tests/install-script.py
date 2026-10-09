@@ -26,7 +26,7 @@ class InstallScriptTests(unittest.TestCase):
         self.bin.mkdir()
         self.log = self.root / "commands"
         self.env = dict(os.environ, PATH=f"{self.bin}:{os.environ['PATH']}",
-                        SUDO_USER="alice", TEST_LOG=str(self.log))
+                        SUDO_USER="alice", TEST_LOG=str(self.log), TEST_ROOT=str(self.root))
         self.script = self.root / "install.sh"
         # Redirect the fixed system paths and privilege check in a test-only copy.
         text = (ROOT / "install.sh").read_text()
@@ -40,12 +40,19 @@ class InstallScriptTests(unittest.TestCase):
         self.command("nix", '''
 printf 'nix %s\n' "$*" >> "$TEST_LOG"
 if [[ "$*" == *system.stateVersion* ]]; then printf '26.05'; fi
+if [[ "$*" == *" build "*.git ]]; then
+  mkdir -p "$TEST_ROOT/git/bin"
+  printf '#!/bin/sh\n' > "$TEST_ROOT/git/bin/git"
+  chmod +x "$TEST_ROOT/git/bin/git"
+  printf '%s' "$TEST_ROOT/git"
+fi
 if [[ "$*" == *'flake update'* ]]; then
   [[ "${TEST_FAIL_UPDATE:-}" != 1 ]] || exit 1
 fi
 ''')
         self.command("nixos-rebuild", '''
 printf 'rebuild %s\n' "$*" >> "$TEST_LOG"
+printf 'rebuild git %s\n' "$(command -v git || echo missing)" >> "$TEST_LOG"
 [[ "${TEST_FAIL_REBUILD:-}" != 1 ]]
 ''')
 
@@ -92,6 +99,19 @@ printf 'rebuild %s\n' "$*" >> "$TEST_LOG"
         self.assertIn('./kwak-os/hosts/physical { system.stateVersion = "26.05"; }', flake)
         self.assertNotIn("kwak.adminUser", (self.config / "kwakos-local.nix").read_text())
         self.assertEqual((source / "flake.nix").read_text(), "old source")
+
+    def test_missing_git_is_provided_from_pinned_nixpkgs(self):
+        # Hide host git by exposing only the tools the script and fakes need.
+        tools = self.root / "tools"
+        tools.mkdir()
+        for name in ["bash", "cp", "mktemp", "grep", "mkdir", "cat", "chmod"]:
+            (tools / name).symlink_to(shutil.which(name))
+        self.env["PATH"] = f"{self.bin}:{tools}"
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        log = self.log.read_text()
+        self.assertIn("inputs.nixpkgs.legacyPackages.x86_64-linux.git", log)
+        self.assertIn(f"rebuild git {self.root}/git/bin/git", log)
 
     def test_custom_flake_requires_explicit_target(self):
         flake = self.config / "flake.nix"
