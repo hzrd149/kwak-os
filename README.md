@@ -1,21 +1,31 @@
 # kwakOS
 
 A small NixOS 26.05 configuration for x86_64 Linux, with Hyprland **0.56.2**,
-SDDM, and a UWSM-managed desktop session. Hyprlax renders a five-layer neon
-cityscape behind a minimal black Wofi launcher. No Home Manager layer is required.
+a Nostr sign-in screen, and a UWSM-managed desktop session. Hyprlax renders its six-layer
+pixel-city demo behind a minimal black Wofi launcher. No Home Manager layer
+is required.
 
 ## Layout
 
 - `flake.nix` and `flake.lock`: system outputs and pinned Nixpkgs revision.
 - `modules/base.nix`: network, locale, timezone, administrator account, and Nix.
-- `modules/desktop.nix`: Hyprland, SDDM, audio, and basic desktop applications.
+- `modules/desktop.nix`: Hyprland, audio, and basic desktop applications.
+- `modules/users.nix`: Nostr sign-in: greetd, the `kwak-userd` user manager, PAM, the
+  swipe card reader service, and account switching with the hyprlock lock screen.
 - `config/`: Hyprland Lua defaults, Hyprlax layers, and Wofi configuration/style.
-- `packages/`: pinned hyprlax package and Wofi horizontal-grid patch.
+- `apps/`: kwakOS's own Python apps, one folder each (`settings`, `userd`,
+  `greeter`, `cards`) with its own `package.nix`, `flake.nix`, and tests. The apps with a
+  UI are [Textual](https://textual.textualize.io) terminal apps, opened in a
+  borderless kitty window and usable with mouse or keyboard.
+- `packages/`: pinned desktop packages, Hyprflow plugin, and Wofi grid patch.
 - `hosts/vm`: local QEMU VM with a separate test password.
 - `hosts/physical`: UEFI installation with a hardware configuration template.
+- `hosts/iso`: bootable live desktop and internet-required graphical installation media.
 
-The default user is `kwak`. Change it in `modules/base.nix` and the VM password
-setting together if needed. The timezone defaults to `America/Chicago`.
+The live/VM default user is `kwak`. The graphical installer lets you choose the
+installed administrator's username and timezone. Manual configurations can set
+`kwak.adminUser`; adjust the VM password setting if changing its default account.
+The default timezone is `America/Chicago`.
 
 ## Run the VM
 
@@ -25,8 +35,8 @@ Install Nix on a Linux host, with flakes enabled. From this repository:
 nix run .#vm
 ```
 
-Log in through SDDM as **kwak**, password **nixos**, and select the Hyprland
-UWSM session if needed. The VM has 4 cores, 4 GiB RAM, and a persistent 20 GiB
+Sign in with a Nostr key, or choose **Sign in with another account… → Linux user** and log in as **kwak**,
+password **nixos**. See [Nostr users](docs/users.md). The VM has 4 cores, 4 GiB RAM, and a persistent 20 GiB
 virtual disk created in the current directory. Shut it down before deleting
 `kwakos-vm.qcow2` to reset it. The password is applied when the account is first
 created; an existing VM disk retains later password changes.
@@ -60,6 +70,7 @@ choice for later sessions. [Mode behavior and visual proofs](docs/settings.md).
 | Control | Action |
 | --- | --- |
 | Super+R / Super+Space | Open Wofi |
+| Super+Tab | Open / close Hyprflow workspace overview |
 | Super+, | Open Settings |
 | Four-finger swipe up | Open Wofi |
 | Super+Q / Super+E | Kitty / Dolphin |
@@ -69,6 +80,11 @@ choice for later sessions. [Mode behavior and visual proofs](docs/settings.md).
 | Super+1…0 | Switch workspace |
 | Three-finger horizontal swipe | Switch workspace |
 | Super+Shift+M | End the UWSM session |
+
+Hyprflow provides Cover Flow workspace navigation. While it is open, use
+Left/Right or 1–9 to select a workspace, Enter to activate it, or Escape to
+return to the original workspace. The default shows nine numeric cards plus
+existing workspaces on the focused monitor. [Configuration and verification](docs/hyprflow.md).
 
 Wofi shows **four columns × three rows**, with centered 64-pixel icons and
 16-pixel labels in 160-pixel square cells. Selection outlines sit 8 pixels
@@ -91,14 +107,94 @@ retain the demo defaults. [Wallpaper proof and reproduction](docs/wallpaper.md).
 
 See [desktop validation and visual proofs](docs/desktop-validation.md).
 
+## Build or download a live ISO
+
+**Installer status:** the installer now uses a standard, internet-required flake
+installation. The revised image and a complete install/reboot/login still need
+end-to-end validation. See
+[implementation status](docs/iso.md#implementation-status).
+
+To download a built image, open a successful run of the [ISO workflow](https://github.com/hzrd149/kwak-os/actions/workflows/iso.yml)
+and download its **kwakos-iso-…** artifact. GitHub requires sign-in. Extract the ZIP;
+flash the `.iso` inside it, not the ZIP. Artifacts are retained for 90 days.
+
+To build it yourself:
+
+```sh
+nix build .#iso --out-link result-iso
+ls result-iso/iso/*.iso
+```
+
+The x86_64 image boots from optical media or USB. **Installation requires UEFI**;
+legacy-mode boot shows instructions to restart in UEFI before changing any disks. It opens
+the kwakOS desktop as `kwak`; the live accounts have empty passwords and
+passwordless sudo. SSH is disabled. Changes disappear on reboot. The graphical
+kwakOS installer opens automatically and is also available from the application
+launcher. It walks through locale, keyboard, account, hostname, and disk setup;
+the final confirmation is destructive when an erase-disk layout is selected.
+
+The installer **requires internet access**. It copies this release's flake and
+lock file to `/etc/nixos/kwak-os`, replaces the physical
+hardware template with the detected target hardware, and installs
+`#physical`. The selected account password and root password are applied by the
+installer. The selected username is the local administrator; the installed system
+boots with the Nostr greeter and SSH enabled for deployments.
+
+The [ISO workflow](.github/workflows/iso.yml) builds only pushed `v*` release tags and uploads the
+image plus checksums to Actions artifacts and GitHub Packages as an OCI artifact.
+See [ISO building, downloading, and validation](docs/iso.md) for exact commands,
+package access, and the distinction between live media and an installed system.
+
 ## Install on a physical machine
+
+You need an x86_64 PC with UEFI firmware, at least 3 GiB RAM, at least 25 GiB of
+installation space, and a USB stick large enough for the downloaded ISO.
+You also need an internet
+connection during installation. Back up files you want to keep.
+
+1. **Flash the ISO** with [balenaEtcher](https://etcher.balena.io/) or Rufus
+   (choose **DD mode** if asked). Select the USB stick, not an internal disk.
+   Flashing replaces the USB stick's contents.
+2. **Boot from the USB.** Open your PC's boot menu and choose its **UEFI** USB entry.
+   Secure Boot is not supported by this image; disable it in firmware if necessary.
+3. **Connect to the internet.** Wired connections normally connect automatically.
+   For Wi-Fi, press **Super+Space**, open **Connect to Network**, choose
+   **Activate a connection**, and select your network.
+4. **Complete the installer**, which opens automatically.
+   Choose your language/location, keyboard, name, username, password, and computer name.
+   If you close the installer, press **Super+Space** and search for **Install KwakOS**.
+5. **Choose the destination disk.** The guided **Erase disk** option creates the
+   installation layout automatically. Check the disk's model and capacity carefully:
+   this removes the data on that disk. Review the summary and confirm installation.
+6. **Restart** when installation finishes. Remove the USB as the computer restarts.
+7. **Sign in.** To use the account you created, choose **Sign in with another
+   account… → Linux user**, then enter your chosen username and password.
+   You can also use a Nostr identity; see [Nostr users](docs/users.md).
+
+The machine-specific configuration and release lock file are saved under
+`/etc/nixos/kwak-os`. Use the same flake for later rebuilds:
+
+```sh
+sudo nixos-rebuild switch --flake /etc/nixos/kwak-os#physical
+```
+
+Installation and rebuilds use normal Nix downloads and binary caches. Packages
+missing from the configured caches may compile locally. To update the upstream
+pins deliberately:
+
+```sh
+sudo nix flake update --flake /etc/nixos/kwak-os
+sudo nixos-rebuild switch --flake /etc/nixos/kwak-os#physical
+```
+
+### Advanced: manual installation
 
 This target assumes **x86_64, UEFI boot, and an EFI partition mounted at
 `/mnt/boot`**. For legacy BIOS or different architectures, adjust the boot loader
 and platform before installing. Hardware-specific GPU configuration, particularly
 NVIDIA, belongs in `hosts/physical` after identifying the machine.
 
-1. Boot the official NixOS installer in UEFI mode and connect to the network.
+1. Boot the kwakOS live ISO or official NixOS installer in UEFI mode and connect to the network.
 2. Partition and format the intended disk following the NixOS installation
    manual, then mount the root filesystem at `/mnt` and EFI partition at
    `/mnt/boot`. Disk formatting erases data; choose the actual disk yourself.
@@ -125,13 +221,14 @@ NVIDIA, belongs in `hosts/physical` after identifying the machine.
 5. Install and set the administrator's password before rebooting:
 
    ```sh
-   sudo nixos-install --flake .#physical --no-root-passwd
+   sudo nixos-install --flake .#physical
    sudo nixos-enter --root /mnt -c 'passwd kwak'
    sudo reboot
    ```
 
-   The physical target has no preset password. Root stays locked when using
-   `--no-root-passwd`; `kwak` can administer the system with `sudo`.
+   The physical target has no preset password. The installer prompts for the
+   root password used by remote deployments; `kwak` can also administer the
+   system with `sudo`.
 
 6. Keep a clone of this repo on the installed machine, including its generated
    hardware file. Apply later changes from that clone:
@@ -140,11 +237,11 @@ NVIDIA, belongs in `hosts/physical` after identifying the machine.
    sudo nixos-rebuild switch --flake .#physical
    ```
 
-SSH is disabled by default. For remote deployment, explicitly enable
-`services.openssh.enable`, configure the user's authorized SSH keys, and provision
-the machine before using `nixos-rebuild` with `--target-host` and
-`--sudo`. Keep the physical hardware configuration in version control, but keep
-private keys and plaintext passwords out of the repo.
+SSH and the firewall rule for TCP/22 are enabled by the shared base module.
+After installation, deploy directly as root with `nixos-rebuild --target-host`
+or migrate root to an authorized SSH key. Keep the physical hardware
+configuration in version control, but keep private keys and plaintext passwords
+out of the repo.
 
 ## Check and update
 
@@ -157,9 +254,9 @@ nix flake check --no-build
 nix fmt
 ```
 
-`nix flake check --no-build` evaluates both system configurations; it does not
-boot them. `nix flake check` builds both system closures and checks the desktop
-Lua configuration and five-layer wallpaper assets. After editing the
+`nix flake check --no-build` evaluates all system configurations; it does not
+boot them. `nix flake check` builds the VM and physical system closures and checks the desktop
+Lua configuration and pixel-city assets. After editing the
 hardware configuration, run the evaluation check again before deployment.
 
 Update the pin deliberately, then check and rebuild:

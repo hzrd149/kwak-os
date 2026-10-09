@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="460" height="180" viewBox="0 0 460 180">
+  <rect width="460" height="180" rx="8" fill="#030803"/>
+  <text x="230" y="65" text-anchor="middle" font-family="sans-serif" font-size="42" fill="#33ff66">KwakOS</text>
+  <text x="230" y="106" text-anchor="middle" font-family="sans-serif" font-size="18" fill="#c8ffd4">Install from USB. No internet needed.</text>
+  <text x="230" y="140" text-anchor="middle" font-family="sans-serif" font-size="16" fill="#c8ffd4">Choose your settings, account, and destination disk.</text>
+</svg>

@@ -1,0 +1,58 @@
+--- a/modules/nixos/main.py
++++ b/modules/nixos/main.py
+@@ -6,2 +6,5 @@
+ import os
++import sys
++sys.path.insert(0, "@KWAK_MODULE@")
++import kwak_installer
+ import subprocess
+@@ -1044,2 +1047,14 @@
+-    # Write the configuration.nix file
+-    libcalamares.utils.host_env_process_output(["cp", "/dev/stdin", config], None, cfg)
++    # Prepare the bundled KwakOS configuration rather than the generic distro.
++    try:
++        kwak_installer.prepare(
++            root_mount_point, "@KWAK_SOURCE@", gs, variables
++        )
++        status = _("Preparing KwakOS configuration")
++        libcalamares.job.setprogress(0.07)
++        build_directory = kwak_installer.build_directory(root_mount_point)
++    except (OSError, ValueError, subprocess.CalledProcessError) as e:
++        return (_("Failed to prepare KwakOS configuration"), str(e))
++
++    # Install the release-pinned flake using normal fetchers and binary caches.
++    nixosInstallCmd = kwak_installer.install_command(root_mount_point, build_directory)
++
+@@ -1059,21 +1074,0 @@
+-    nixosInstallCmd = [ "pkexec" ]
+-    nixosInstallCmd.extend(generateProxyStrings())
+-    nixosInstallCmd.extend(
+-        [
+-            "nixos-install",
+-            "--no-root-passwd",
+-            "--root",
+-            root_mount_point,
+-            "--log-format",
+-            "internal-json",
+-            # Nix requires its build directory to have no
+-            # world-writable parent directories. The chroot store that
+-            # nixos-install uses will use the state dir in the chroot
+-            # for the build-dir, but the chroot is under /tmp, which
+-            # is writable. It doesn't have to be in the chroot though,
+-            # so we can just realign it with the host state dir.
+-            "--option",
+-            "build-dir",
+-            "/nix/var/nix/builds",
+-        ]
+-    )
+@@ -1115,8 +1109,10 @@
+         exit = proc.wait()
+         if exit != 0:
+             return (_("nixos-install failed"), _(output))
+     except:
+         return (_("nixos-install failed"), _("Installation failed to complete"))
++    finally:
++        kwak_installer.release_build_directory(build_directory)
+ 
+     libcalamares.job.setprogress(INSTALL_PROGRESS_END)
+     return None

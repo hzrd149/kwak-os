@@ -85,7 +85,7 @@ assert(state.focus.direction == "right")
 local blocked = pcall(kwak_settings.apply, "kwassik")
 assert(not blocked and state.layout == "master" and #state.moves == 0)
 assert(kwak_settings.mode == "master", "Ambiguous dialogs must leave mode and placement unchanged")
--- The floating Settings app is safe to leave in place while main windows split.
+-- Floating kwakOS apps such as Settings are safe to leave in place while main windows split.
 state.windows[4].class = "org.kwak.Settings"
 kwak_settings.apply("kwassik")
 assert(state.layout == "monocle" and #state.moves == 2)

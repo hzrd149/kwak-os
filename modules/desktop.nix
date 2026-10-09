@@ -1,4 +1,6 @@
 {
+  config,
+  lib,
   pkgs,
   hyprland,
   ...
@@ -18,6 +20,9 @@ let
       exec hyprlax --config ${pkgs.hyprlax}/share/hyprlax/pixel-city/parallax.toml "$@"
     '';
   };
+  keyboardConfig = pkgs.writeText "kwak-keyboard.lua" ''
+    kwak_keyboard = { layout = ${builtins.toJSON config.services.xserver.xkb.layout}, variant = ${builtins.toJSON config.services.xserver.xkb.variant} }
+  '';
 in
 {
   # The release flake supplies the compositor and its matching portal together.
@@ -29,17 +34,23 @@ in
 
   # XDG system defaults leave each user's ~/.config overrides intact.
   environment.etc = {
-    "xdg/hypr/hyprland.lua".source = ../config/hypr/hyprland.lua;
+    "xdg/hypr/hyprland.lua".source = pkgs.runCommand "kwak-hyprland.lua" { } ''
+      cat ${keyboardConfig} ${pkgs.kwak-hyprland-config} > $out
+    '';
     "xdg/wofi/config".source = ../config/wofi/config;
     "xdg/wofi/style.css".source = ../config/wofi/style.css;
   };
 
-  services.displayManager.sddm.enable = true;
-  services.displayManager.sddm.wayland.enable = true;
-  services.displayManager.defaultSession = "hyprland-uwsm";
-  services.displayManager.autoLogin = {
-    enable = true;
-    user = "kwak";
+  # Installed systems sign in through the Nostr greeter (modules/users.nix);
+  # without it, SDDM logs straight into the kwak account.
+  services.displayManager = lib.mkIf (!config.kwak.nostrUsers.enable) {
+    sddm.enable = true;
+    sddm.wayland.enable = true;
+    defaultSession = "hyprland-uwsm";
+    autoLogin = {
+      enable = true;
+      user = lib.mkDefault "kwak";
+    };
   };
 
   services.pipewire = {

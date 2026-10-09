@@ -1,0 +1,55 @@
+{
+  "checks": [
+    "automatic plugin load and clean configuration",
+    "native keyboard input reaches the fixture before opening",
+    "Super+Tab, arrows and numeric jump select without activating; unrelated input is consumed",
+    "Enter activates the selected workspace and restores the previous submap",
+    "Escape cancels selection and restores client keyboard focus",
+    "Super+Tab also closes the overview",
+    "config reload retains the plugin options and bindings",
+    "three unload/reload cycles while open restore input and keep the compositor alive"
+  ],
+  "plugin": "/nix/store/45zl63kz04fx7kp5hs7xj44dvjg4mm9p-hyprflow-0-unstable-2026-10-06/lib/hyprflow.so",
+  "startup_plugins": [
+    {
+      "name": "hyprflow",
+      "author": "hyprflow contributors",
+      "handle": "5fcefd182b20",
+      "version": "0.1.0",
+      "description": "Classic Cover Flow workspace navigation"
+    }
+  ],
+  "overview": {
+    "open": true,
+    "selected": 3,
+    "origin": 1,
+    "position": 1.999989,
+    "openness": 1.0,
+    "closing": false
+  },
+  "version": {
+    "branch": "unknown",
+    "commit": "efb50993780079460b0cbed1363e2166a2de1d9f",
+    "version": "0.56.2",
+    "dirty": true,
+    "commit_message": "unknown",
+    "commit_date": "2026-08-05",
+    "tag": "v0.56.2",
+    "commits": "0",
+    "buildAquamarine": "0.14.0",
+    "buildHyprlang": "0.6.8",
+    "buildHyprutils": "0.14.0",
+    "buildHyprcursor": "0.1.13",
+    "buildHyprgraphics": "0.5.1",
+    "systemAquamarine": "unknown",
+    "systemHyprlang": "unknown",
+    "systemHyprutils": "unknown",
+    "systemHyprcursor": "unknown",
+    "systemHyprgraphics": "unknown",
+    "abiHash": "efb50993780079460b0cbed1363e2166a2de1d9f_aq_0.14_hu_0.14_hg_0.5_hc_0.1_hlg_0.6",
+    "flags": [
+      "nix"
+    ]
+  },
+  "passed": true
+}

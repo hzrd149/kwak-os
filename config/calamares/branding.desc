@@ -1,0 +1,31 @@
+---
+componentName: kwakos
+welcomeStyleCalamares: false
+welcomeExpandingLogo: true
+windowExpanding: normal
+windowSize: 900px,620px
+windowPlacement: center
+sidebar: widget
+navigation: widget
+strings:
+  productName: KwakOS
+  shortProductName: KwakOS
+  versionedName: KwakOS
+  shortVersionedName: KwakOS
+  bootloaderEntryName: KwakOS
+  productUrl: https://github.com/hzrd149/kwak-os
+  supportUrl: https://github.com/hzrd149/kwak-os/issues
+  knownIssuesUrl: https://github.com/hzrd149/kwak-os/issues
+  releaseNotesUrl: ""
+  donateUrl: ""
+images:
+  productIcon: welcome.svg
+  productLogo: welcome.svg
+  productWelcome: welcome.svg
+style:
+  SidebarBackground: "#030803"
+  SidebarText: "#c8ffd4"
+  SidebarTextCurrent: "#030803"
+  SidebarBackgroundCurrent: "#33ff66"
+uploadServer:
+  type: none
