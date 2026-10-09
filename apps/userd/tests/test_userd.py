@@ -504,6 +504,24 @@ class SessionTests(ManagerCase):
 
 
 class RemovalTests(ManagerCase):
+    def test_signout_survives_interrupted_removal(self):
+        self.manager.login_nsec("11" * 32, "hunter2")
+        self.manager.request_signout(USER)
+        self.assertTrue(self.manager.entry(USER)["pending_removal"])
+        self.assertEqual(self.manager.known(), [])
+        with self.assertRaises(userd.UserError):
+            self.manager.unlock(USER, "hunter2")
+        with self.assertRaises(userd.UserError):
+            self.manager.login_nsec("11" * 32, "hunter2")
+        # A new daemon instance at boot must finish the deletion.
+        restarted = userd.UserManager(
+            self.config, run=self.system, nak=self.nak, clock=self.clock,
+            users=self.system, executable="/bin/kwak-userd", sessions=self.sessions,
+        )
+        self.assertEqual(restarted.cleanup_temporary(wait=lambda _: None), [USER])
+        self.assertIsNone(restarted.entry(USER))
+        self.assertNotIn(USER, self.system.accounts)
+
     def test_remove_cleans_up_in_order(self):
         self.manager.login_nsec("11" * 32, "hunter2")
         home = Path(self.system.accounts[USER].pw_dir)

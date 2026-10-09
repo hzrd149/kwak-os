@@ -114,7 +114,8 @@ After you confirm, a separate job:
 Your Nostr identity itself is not affected.
 
 Temporary users are removed the same way when their session closes. If the machine
-crashes first, `kwak-userd-cleanup.service` removes them at the next boot.
+crashes first, `kwak-userd-cleanup.service` removes them at the next boot. It also
+finishes a saved account's deletion if sign-out was interrupted by a restart.
 
 ## Napplets
 
@@ -136,6 +137,21 @@ give kwakore your key.
 
 `kwakore signer status` shows the signer. `kwakore signer switch none` signs napplets
 out for good, and `kwakore signer switch system` signs them back in.
+
+To give each newly created account a starting set of napplets, configure their
+addresses in Nix:
+
+```nix
+kwak.nostrUsers.defaultNapplets = [
+  "nostr:naddr1..."
+];
+```
+
+The list defaults to empty. Account creation copies it into the new home; a
+user service installs those napplets when the account first signs in. Failed
+installs retry at a later sign-in. Once a default installs, the user can remove
+it without it returning. Changing the Nix list affects newly created accounts,
+not existing ones.
 
 ## How it works
 

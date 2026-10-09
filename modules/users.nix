@@ -202,10 +202,10 @@ in
         Restart = "on-failure";
       };
     };
-    # Temporary identities are deleted at logout; this catches any left by a
-    # crash or power loss before anyone can sign in again.
+    # Finish temporary-user deletion and interrupted sign-out jobs before
+    # anyone can sign in again.
     systemd.services.kwak-userd-cleanup = {
-      description = "Remove leftover temporary Nostr identities";
+      description = "Finish pending Nostr identity removals";
       wantedBy = [ "multi-user.target" ];
       before = [ "greetd.service" ];
       after = [ "local-fs.target" ];

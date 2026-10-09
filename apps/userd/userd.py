@@ -749,7 +749,7 @@ class UserManager:
         need their ncryptsec password or the bunker's approval.
         """
         entry = self.entry(username)
-        if entry is None:
+        if entry is None or entry.get("pending_removal"):
             raise UserError("Unknown identity.")
         if entry.get("temporary"):
             return self._grant(username, True, entry.get("name") or username)
@@ -776,6 +776,8 @@ class UserManager:
         events = self.nak.fetch(pubkey, self.config["relays"]) if not self.entry(username) else []
         with self.registry() as data:
             entry = data.get(username)
+            if entry and entry.get("pending_removal"):
+                raise UserError("This account is being deleted. Try again shortly.")
             if entry and entry["pubkey"] != pubkey:
                 raise UserError(
                     f"{username} already belongs to a different key with the same prefix."
@@ -1200,7 +1202,9 @@ class UserManager:
     def known(self):
         """Identities on this computer for the greeter, oldest first."""
         with self.registry() as data:
-            items = sorted(data.items(), key=lambda item: item[1].get("created", 0))
+            items = sorted(((name, entry) for name, entry in data.items()
+                            if not entry.get("pending_removal")),
+                           key=lambda item: item[1].get("created", 0))
         avatars = self.state / "avatars"
         return [
             {
@@ -1377,6 +1381,10 @@ class UserManager:
         if self.managed(username) is None:
             raise UserError("Only Nostr identities can sign out of this computer.")
         self._drop(username)
+        # Record the deletion before starting the detached job. A reboot can
+        # interrupt that job, so boot cleanup must be able to resume it.
+        with self.registry() as data:
+            data[username]["pending_removal"] = True
         self.schedule_removal(username)
         return {"scheduled": True}
 
@@ -1422,9 +1430,10 @@ class UserManager:
         return {"removed": username}
 
     def cleanup_temporary(self, wait=time.sleep):
-        """Remove temporary identities left over from a crash or power loss."""
+        """Finish temporary and requested removals after a crash or power loss."""
         with self.registry() as data:
-            leftovers = [name for name, entry in data.items() if entry.get("temporary")]
+            leftovers = [name for name, entry in data.items()
+                         if entry.get("temporary") or entry.get("pending_removal")]
         removed = []
         for username in leftovers:
             try:
