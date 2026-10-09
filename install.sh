@@ -146,7 +146,12 @@ if ! command -v git >/dev/null; then
   export PATH="$git_path/bin:$PATH"
 fi
 "${nix_cmd[@]}" flake update kwakOS --flake "$flake"
-nixos-rebuild "$action" --flake "$flake#$host" --no-update-lock-file
+# Source builds can outlast idle timeouts; suspending mid-build breaks downloads.
+inhibit=()
+if command -v systemd-inhibit >/dev/null; then
+  inhibit=(systemd-inhibit --what=sleep:idle --who=kwakOS --why="Installing kwakOS")
+fi
+"${inhibit[@]}" nixos-rebuild "$action" --flake "$flake#$host" --no-update-lock-file
 trap - ERR
 if [[ $action == boot ]]; then
   echo "kwakOS is ready. Reboot when convenient to start the new system."

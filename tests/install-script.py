@@ -50,6 +50,11 @@ if [[ "$*" == *'flake update'* ]]; then
   [[ "${TEST_FAIL_UPDATE:-}" != 1 ]] || exit 1
 fi
 ''')
+        self.command("systemd-inhibit", '''
+printf 'inhibit %s\n' "$*" >> "$TEST_LOG"
+while [[ "$1" == --* ]]; do shift; done
+exec "$@"
+''')
         self.command("nixos-rebuild", '''
 printf 'rebuild %s\n' "$*" >> "$TEST_LOG"
 printf 'rebuild git %s\n' "$(command -v git || echo missing)" >> "$TEST_LOG"
@@ -87,6 +92,7 @@ printf 'rebuild git %s\n' "$(command -v git || echo missing)" >> "$TEST_LOG"
         self.assertIn("rebuild boot --flake path:", log)
         self.assertIn("rebuild switch --flake path:", log)
         self.assertIn("--no-update-lock-file", log)
+        self.assertIn("inhibit --what=sleep:idle", log)
 
     def test_iso_migration_uses_local_hardware_and_original_version(self):
         source = self.config / "kwak-os"
