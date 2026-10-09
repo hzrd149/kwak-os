@@ -37,17 +37,56 @@ Requires x86_64, UEFI, at least 3 GiB RAM, and 25 GiB disk space.
 The live session has passwordless sudo and SSH disabled; the installed system
 enables SSH and saves its detected hardware and configuration in `/etc/nixos/kwak-os`.
 
-Rebuild an ISO-installed system:
+## Install or update with one command
+
+On an installed **x86_64 NixOS or kwakOS** machine, run:
 
 ```sh
-sudo nixos-rebuild switch --flake /etc/nixos/kwak-os#physical
+curl -fsSL https://raw.githubusercontent.com/hzrd149/kwak-os/master/install.sh | sudo bash
 ```
 
-To update dependency pins first:
+Run the same command again to update. Internet access is required. The script
+asks for confirmation, backs up `/etc/nixos` under `/var/backups/kwakos.…`,
+and builds the new system for the **next boot**. Reboot when convenient.
+It does not partition disks or change your account password.
+
+As with any downloaded root script, inspect it first if you prefer:
 
 ```sh
-sudo nix flake update --flake /etc/nixos/kwak-os
+curl -fsSL https://raw.githubusercontent.com/hzrd149/kwak-os/master/install.sh -o install.sh
+less install.sh
+sudo bash install.sh
 ```
+
+For a conventional NixOS installation, the script creates `/etc/nixos/flake.nix`
+and `kwakos-local.nix`, retaining `configuration.nix`, hardware, bootloader,
+networking, credentials, and `system.stateVersion`. The sudo caller becomes
+`kwak.adminUser`; use `--admin-user USER` when running directly as root.
+The local overrides disable standard competing display managers, autologin,
+and PulseAudio in favor of greetd and PipeWire. Review unusual desktop or
+Home Manager configurations yourself; arbitrary custom configurations are not
+automatically rewritten. Conversion enables the shared module's SSH defaults;
+keep or add your own SSH restrictions in `configuration.nix`.
+
+For ISO-installed systems, the script reuses the hardware and installer choices
+in `/etc/nixos/kwak-os/hosts/physical`, preserving the evaluated state version.
+The old source copy is retained, but the new `/etc/nixos#kwakos` flake imports
+the current upstream module. After migration, use the script or this new target,
+not the old `/etc/nixos/kwak-os#physical` target.
+
+Subsequent runs update only the `kwakOS` input, using upstream's pinned
+dependencies; machine-local files are not overwritten. Add `--switch` to
+activate immediately (this may end the desktop session), or `--yes` to skip
+confirmation:
+
+```sh
+sudo bash install.sh --switch
+```
+
+If a build fails, the script reports the backup and leaves the configuration
+available for inspection and retry. It does not attempt automatic restoration.
+The previous NixOS generation remains available from the boot menu; you can
+also restore the backed-up configuration before rebuilding.
 
 **Status:** full install/reboot/login validation is still pending.
 See [ISO details and validation](docs/iso.md).
@@ -92,6 +131,17 @@ Update kwakOS, then run the rebuild again:
 cd /etc/nixos
 sudo nix flake update kwakOS
 ```
+
+Alternatively, use the script with your existing flake target:
+
+```sh
+sudo bash install.sh --flake /etc/nixos#my-machine
+```
+
+The flake must have an input named `kwakOS` and already import its module.
+The script refuses to overwrite a custom `/etc/nixos/flake.nix`. With `--flake`,
+it only backs up, updates that input, and rebuilds the selected host; it does
+not add desktop overrides or change other top-level dependency pins.
 
 ## Remote deployment
 

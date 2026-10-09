@@ -207,6 +207,13 @@
 
       formatter.${system} = pkgs.nixfmt-tree;
       checks.${system} = {
+        install-script = pkgs.runCommand "kwak-install-script-check" {
+          nativeBuildInputs = [ pkgs.python3 pkgs.bash pkgs.shellcheck ];
+        } ''
+          shellcheck ${./install.sh}
+          python3 ${self.outPath}/tests/install-script.py
+          touch $out
+        '';
         shared-module =
           let
             machine = nixpkgs.lib.nixosSystem {
