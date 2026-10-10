@@ -1,0 +1,331 @@
+{
+  "runtime": "Unmodified hyprlax v2.2.7 source, CI=1 host build; isolated headless Sway with software rendering",
+  "ipc_adapter": "Real Sway IPC forwarded with JSON whitespace compacted for Hyprlax's literal string parser; no event values changed",
+  "compositor_version": "sway version 1.9",
+  "hyprlax_version": "hyprlax 2.2.7\nButtery-smooth parallax wallpaper daemon with support for multiple compositors, platforms and renderers",
+  "config_sha256": "d3f9e8ac8f16d83749011d125998f840ffe97eee09b40243f343b34a8fa16b7c",
+  "binary_sha256": "150fcd76c03e1559cff3ce3d1ca2e1071133b87c7e58ff23bc09b7fb32034b92",
+  "status": {
+    "running": true,
+    "layers": 5,
+    "target_fps": 144,
+    "fps": 0.19,
+    "parallax_input": "workspace:1.000",
+    "compositor": "Sway",
+    "socket": "/tmp/hyprlax-proof.sock",
+    "vsync": false,
+    "debug": true,
+    "caps": {
+      "steal": true,
+      "move": false,
+      "split": false,
+      "wsets": false,
+      "tags": false,
+      "vstack": false
+    },
+    "monitors": [
+      {
+        "name": "output-44",
+        "size": [
+          1920,
+          1080
+        ],
+        "pos": [
+          0,
+          0
+        ],
+        "scale": 1,
+        "refresh": 0,
+        "caps": {
+          "steal": false,
+          "move": false,
+          "split": false,
+          "wsets": false,
+          "tags": false,
+          "vstack": false
+        }
+      }
+    ]
+  },
+  "layers": [
+    {
+      "id": 1,
+      "path": "/wallpaper/4.png",
+      "shift": 0.0,
+      "opacity": 1.0,
+      "z": 0,
+      "uv": [
+        0.0,
+        0.0
+      ],
+      "fit": "cover",
+      "align": [
+        0.5,
+        0.5
+      ],
+      "content_scale": 1.0,
+      "blur": 0.0,
+      "overflow": "repeat_edge",
+      "tile": [
+        true,
+        false
+      ],
+      "margin": [
+        0.0,
+        0.0
+      ],
+      "hidden": false,
+      "tint": [
+        1.0,
+        1.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "id": 2,
+      "path": "/wallpaper/3.png",
+      "shift": 0.3,
+      "opacity": 1.0,
+      "z": 10,
+      "uv": [
+        0.0,
+        0.05
+      ],
+      "fit": "cover",
+      "align": [
+        0.5,
+        0.5
+      ],
+      "content_scale": 1.0,
+      "blur": 1.1,
+      "overflow": "repeat_edge",
+      "tile": [
+        true,
+        false
+      ],
+      "margin": [
+        0.0,
+        0.0
+      ],
+      "hidden": false,
+      "tint": [
+        1.0,
+        1.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "id": 3,
+      "path": "/wallpaper/2.png",
+      "shift": 0.5,
+      "opacity": 1.0,
+      "z": 20,
+      "uv": [
+        0.0,
+        0.05
+      ],
+      "fit": "cover",
+      "align": [
+        0.5,
+        0.5
+      ],
+      "content_scale": 1.0,
+      "blur": 0.3,
+      "overflow": "repeat_edge",
+      "tile": [
+        true,
+        false
+      ],
+      "margin": [
+        0.0,
+        0.0
+      ],
+      "hidden": false,
+      "tint": [
+        1.0,
+        1.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "id": 4,
+      "path": "/wallpaper/1.png",
+      "shift": 0.6,
+      "opacity": 1.0,
+      "z": 30,
+      "uv": [
+        0.0,
+        -0.2
+      ],
+      "fit": "cover",
+      "align": [
+        0.5,
+        0.5
+      ],
+      "content_scale": 1.0,
+      "blur": 0.0,
+      "overflow": "repeat_edge",
+      "tile": [
+        true,
+        false
+      ],
+      "margin": [
+        0.0,
+        0.0
+      ],
+      "hidden": false,
+      "tint": [
+        1.0,
+        1.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "id": 5,
+      "path": "/wallpaper/0.png",
+      "shift": 0.0,
+      "opacity": 1.0,
+      "z": 40,
+      "uv": [
+        0.0,
+        -0.1
+      ],
+      "fit": "cover",
+      "align": [
+        0.5,
+        0.5
+      ],
+      "content_scale": 1.0,
+      "blur": 0.0,
+      "overflow": "repeat_edge",
+      "tile": [
+        true,
+        false
+      ],
+      "margin": [
+        0.0,
+        0.0
+      ],
+      "hidden": false,
+      "tint": [
+        1.0,
+        1.0,
+        1.0,
+        0.0
+      ]
+    }
+  ],
+  "measurements": {
+    "4.png": {
+      "measured_shift_px": 0,
+      "identical_frames": true,
+      "registration_error_rgb": 0.0,
+      "before_sha256": "5ba7c153c0cdcab8ec616ef4d7af125884e90cf9441a2fadd25df33feea3bc5a",
+      "after_sha256": "5ba7c153c0cdcab8ec616ef4d7af125884e90cf9441a2fadd25df33feea3bc5a"
+    },
+    "3.png": {
+      "measured_shift_px": -49,
+      "identical_frames": false,
+      "registration_error_rgb": 0.6701144547325103,
+      "before_sha256": "128a7e8c894e44e7b8019f955d2f8e7c341237ef629165392c898192204ddeb7",
+      "after_sha256": "f38c49b63d27046e7d73e0edd208519f5ed3b29c4feaeb5bdf91dbdabdde2452"
+    },
+    "2.png": {
+      "measured_shift_px": -81,
+      "identical_frames": false,
+      "registration_error_rgb": 4.5010288065843624e-05,
+      "before_sha256": "eef720ff9eed06b425d039f07606a5754840b3ea2ec7a544f931d095583f3ca8",
+      "after_sha256": "ddebd8e9f3f9096866e577066a527406ef32fca6ead4d498e976f7253b9a2543"
+    },
+    "1.png": {
+      "measured_shift_px": -97,
+      "identical_frames": false,
+      "registration_error_rgb": 1.0873334619341564,
+      "before_sha256": "078b6083d5584dcede16a522543acee76521c62cf899714f1d5eff49ff60edd0",
+      "after_sha256": "94ec6f5a64d169f5360497fcdb87f8f4d5f3c6964a9f6cbfdcbb29cd54ab2e46"
+    },
+    "0.png": {
+      "measured_shift_px": 0,
+      "identical_frames": true,
+      "registration_error_rgb": 0.0,
+      "before_sha256": "53c919da92695d95e607e9081140ace6528aae0c3f9a15d2c6971d34c5fb67e8",
+      "after_sha256": "53c919da92695d95e607e9081140ace6528aae0c3f9a15d2c6971d34c5fb67e8"
+    }
+  },
+  "result": "PASS: foreground/sky identical; city movement 1 > 2 > 3 > 0",
+  "hyprlax_source_nar_hash": "sha256-CkhHGPfYqGTPSFFzhOoIQCGi31wK7u+MYpWqeq55RJQ=",
+  "validation": [
+    "Nix package derivation evaluation passed",
+    "Evaluated postInstall executed; installed asset/config checks passed",
+    "Global settings equal upstream pixel-city defaults",
+    "Source image identities and alpha-only repair verified",
+    "Live workspace pixel comparisons passed",
+    "Vertical placement verified against prior 1080p isolated-layer captures: 0 down 108px, 1 down 216px, 2/3 up 54px, sky unchanged",
+    "Layer 1 multiplier reduced from 1.0 to 0.6; all workspace-1 layer captures match previous placement exactly"
+  ],
+  "limitations": [
+    "Runtime uses arm64 host build with Sway IPC whitespace proxy, not the x86_64 Nix artifact or Hyprland",
+    "Full NixOS closure build and VM boot not rerun"
+  ],
+  "capture": {
+    "viewport": [
+      1920,
+      1080
+    ],
+    "aspect_ratio": "16:9",
+    "screenshot": [
+      1920,
+      1080
+    ],
+    "animation": [
+      1280,
+      720
+    ],
+    "animation_encoding": "Actual compositor frames, timed by capture timestamps; 5 fps GIF",
+    "fit": "Cover fit with per-layer vertical placement; aspect ratio preserved with horizontal cropping"
+  },
+  "vertical_placement": {
+    "baseline_commit": "70963a8ffed05263fc7447b56c0d6cb0ffe4e419",
+    "method": "Compare the same isolated layer on workspace 1 before/after placement change; register interior crop at expected vertical translation and +/-1 pixel. Positive means down. Mean RGB error must be <0.001 on 0..255 scale.",
+    "measurements": {
+      "0.png": {
+        "vertical_displacement_px": 108,
+        "mean_absolute_rgb_error": 2.8735632183908045e-05,
+        "baseline_sha256": "def5d0b889071024b3f390f89657f72161e76bfa95cb5ad22fedb0e066d0109c",
+        "current_sha256": "53c919da92695d95e607e9081140ace6528aae0c3f9a15d2c6971d34c5fb67e8"
+      },
+      "1.png": {
+        "vertical_displacement_px": 216,
+        "mean_absolute_rgb_error": 8.086073242448542e-05,
+        "baseline_sha256": "f1bde8076f454bf030e83662c1c4963a72d558dc00900ea791eb516120d021f4",
+        "current_sha256": "078b6083d5584dcede16a522543acee76521c62cf899714f1d5eff49ff60edd0"
+      },
+      "2.png": {
+        "vertical_displacement_px": -54,
+        "mean_absolute_rgb_error": 3.441593156909917e-05,
+        "baseline_sha256": "7608879d865feb4099a76398bd04feb4b5d014189bf448ac0fdd36d562e8e275",
+        "current_sha256": "eef720ff9eed06b425d039f07606a5754840b3ea2ec7a544f931d095583f3ca8"
+      },
+      "3.png": {
+        "vertical_displacement_px": -54,
+        "mean_absolute_rgb_error": 3.107457898957498e-05,
+        "baseline_sha256": "1483de5777727ef0063de99a6ef594bdacb30e8f7241858233b375d5dae6031a",
+        "current_sha256": "128a7e8c894e44e7b8019f955d2f8e7c341237ef629165392c898192204ddeb7"
+      },
+      "4.png": {
+        "vertical_displacement_px": 0,
+        "mean_absolute_rgb_error": 0.0,
+        "baseline_sha256": "5ba7c153c0cdcab8ec616ef4d7af125884e90cf9441a2fadd25df33feea3bc5a",
+        "current_sha256": "5ba7c153c0cdcab8ec616ef4d7af125884e90cf9441a2fadd25df33feea3bc5a"
+      }
+    }
+  },
+  "proof_sha256": {
+    "wallpaper.png": "87b136b1fa7418e6997a3cf75e2a34939fe50fa7f899e723904b1a0bdb399336",
+    "wallpaper-motion.gif": "795fad816d14a340c69e5ca32701eefddba7771df12f233a59fbd492410b6972"
+  }
+}

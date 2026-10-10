@@ -15,9 +15,6 @@ hyprlax.overrideAttrs (old: {
   '';
   postInstall = (old.postInstall or "") + ''
     mkdir -p $out/share/hyprlax
-    cp -r examples/pixel-city $out/share/hyprlax/pixel-city
-    # Upstream's demo has a stray suffix; retain every other demo setting.
-    substituteInPlace $out/share/hyprlax/pixel-city/parallax.toml \
-      --replace-fail 'blur = 0.0VV' 'blur = 0.0'
+    cp -r ${../config/hyprlax} $out/share/hyprlax/pixel-city
   '';
 })
