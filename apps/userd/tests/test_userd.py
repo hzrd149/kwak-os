@@ -977,7 +977,7 @@ class PermissionTests(ManagerCase):
 # The real public key of "11" * 32, for tests that sign.
 SIGNING_PUBKEY = "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"
 SIGNING_USER = "n4f355bdcb7"
-KWAKORE = "/nix/store/kwakore/bin/.kwakore-daemon-wrapped"
+KWAKORE = "/nix/store/kwakore/bin/.kwakore-wrapped"
 
 
 class CryptoTests(unittest.TestCase):

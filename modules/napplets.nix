@@ -42,7 +42,7 @@ in
       };
     };
     # makeWrapper execs this; it is what /proc/PID/exe shows for the daemon.
-    kwak.nostrUsers.signerClients = [ "${package}/bin/.kwakore-daemon-wrapped" ];
+    kwak.nostrUsers.signerClients = [ "${package}/bin/.kwakore-wrapped" ];
     kwak.nostrUsers.setupHooks = lib.optionalAttrs (defaults != [ ]) {
       "10-default-napplets" = ''
         ${pkgs.coreutils}/bin/install -m 600 -o "$KWAK_USER" -g "$KWAK_USER" \
