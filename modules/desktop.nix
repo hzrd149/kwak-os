@@ -53,6 +53,25 @@ in
     };
   };
 
+  # Converted hosts often enable a stock desktop, whose bundled apps would
+  # crowd the launcher; kwakOS ships only its own desktop and applications.
+  services.desktopManager = lib.genAttrs [
+    "budgie"
+    "cosmic"
+    "gnome"
+    "lomiri"
+    "pantheon"
+    "plasma6"
+  ] (_: { enable = lib.mkForce false; });
+  services.xserver.desktopManager = lib.genAttrs [
+    "cinnamon"
+    "enlightenment"
+    "lxqt"
+    "mate"
+    "xfce"
+  ] (_: { enable = lib.mkForce false; });
+  documentation.nixos.enable = lib.mkDefault false;
+
   services.pipewire = {
     enable = true;
     alsa.enable = true;

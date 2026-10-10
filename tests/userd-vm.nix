@@ -62,9 +62,9 @@ pkgs.testers.runNixOSTest {
     machine.wait_for_unit("nak-relay.service")
     machine.wait_for_open_port(10547)
 
-    with subtest("nsec with a password is saved as an ncryptsec"):
+    with subtest("a kept nsec is saved as an ncryptsec with a Unix password"):
         sk, pk, user = new_key()
-        grant = call("login_nsec", nsec=sk, password="hunter2")
+        grant = call("login_nsec", nsec=sk, password="hunter2", persistent=True)
         assert grant["username"] == user and not grant["temporary"], grant
         machine.succeed(f"id -nG {user} | grep -w nostr")
         uid = machine.succeed(f"id -u {user}").strip()
@@ -72,10 +72,16 @@ pkgs.testers.runNixOSTest {
         machine.succeed(f"grep {pk} /home/{user}/.config/kwak/identity.json")
         machine.succeed(f"runuser -u {user} -- sh -c 'echo x >> ~/.config/kitty/kitty.conf'")
         machine.succeed(f"grep -x {pk} /home/{user}/welcome.txt")
-        machine.succeed(f"passwd -S {user} | grep -w L")
+        machine.succeed(f"passwd -S {user} | grep -w P")
+        machine.succeed(f"echo hunter2 | pamtester kwak-userd {user} authenticate")
+        machine.fail(f"echo nope | pamtester kwak-userd {user} authenticate")
         machine.succeed(f"grep ncryptsec1 /var/lib/kwak-userd/keys/{user}/key.json")
         machine.fail(f"grep -r {sk} /var/lib/kwak-userd")
         assert [p["username"] for p in call("list_known")] == [user]
+
+    with subtest("a kept account needs its password, not just its key"):
+        assert call("login_nsec", nsec=sk)["password_required"]
+        machine.fail(f"runuser -u greeter -- ${client} unlock '{{\"username\": \"{user}\", \"password\": \"nope\"}}'")
 
     with subtest("tokens are single use and only for their user"):
         assert pam("n0123456789", grant["token"]) != 0
@@ -90,11 +96,12 @@ pkgs.testers.runNixOSTest {
         call("signout", as_user=user)
         assert_gone(user, uid)
 
-    with subtest("nsec without a password is temporary and deleted at logout"):
+    with subtest("a guest has no password and is deleted at logout"):
         sk, pk, guest = new_key()
-        grant = call("login_nsec", nsec=sk)
+        grant = call("login_nsec", nsec=sk, password="ignored")
         assert grant["temporary"], grant
         guid = machine.succeed(f"id -u {guest}").strip()
+        machine.succeed(f"passwd -S {guest} | grep -w L")
         machine.fail(f"test -e /var/lib/kwak-userd/keys/{guest}")
         assert [p["temporary"] for p in call("list_known")] == [True]
         assert pam(guest, call("unlock", username=guest)["token"], "open_session") == 0
@@ -111,7 +118,7 @@ pkgs.testers.runNixOSTest {
     with subtest("ncryptsec is saved and unlocked with its password"):
         sk, pk, user = new_key()
         ncryptsec = machine.succeed(f"echo {sk} | nak key encrypt secretpw").strip()
-        grant = call("login_ncryptsec", ncryptsec=ncryptsec, password="secretpw")
+        grant = call("login_ncryptsec", ncryptsec=ncryptsec, password="secretpw", persistent=True)
         assert grant["username"] == user and not grant["temporary"], grant
         machine.succeed(f"grep {ncryptsec} /var/lib/kwak-userd/keys/{user}/key.json")
         machine.fail(f"runuser -u greeter -- ${client} unlock '{{\"username\": \"{user}\", \"password\": \"nope\"}}'")
@@ -127,13 +134,15 @@ pkgs.testers.runNixOSTest {
         )
         uri = f"bunker://{rpk}?relay=ws%3A%2F%2F127.0.0.1%3A10547&secret=s3cret"
         grant = json.loads(machine.wait_until_succeeds(
-            f"runuser -u greeter -- ${client} login_bunker {shlex.quote(json.dumps({'uri': uri}))}",
+            "runuser -u greeter -- ${client} login_bunker "
+            + shlex.quote(json.dumps({"uri": uri, "password": "bunkerpw", "persistent": True})),
             timeout=120,
         ))
         user = "n" + rpk[:10]
         assert grant["username"] == user and not grant["temporary"], grant
         assert call("list_known")[0]["method"] == "bunker"
-        assert pam(user, call("unlock", username=user)["token"]) == 0
+        machine.fail(f"runuser -u greeter -- ${client} unlock '{{\"username\": \"{user}\"}}'")
+        assert pam(user, call("unlock", username=user, password="bunkerpw")["token"]) == 0
 
     with subtest("only root can remove an identity"):
         machine.fail(f"runuser -u greeter -- ${client} remove '{{\"username\": \"{user}\"}}'")

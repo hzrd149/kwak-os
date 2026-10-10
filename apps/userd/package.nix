@@ -11,11 +11,13 @@
   kbd,
 }:
 let
-  # pynacl for NIP-49; coincurve and cryptography to sign for kwakore.
+  # pynacl for NIP-49; coincurve and cryptography to sign for kwakore;
+  # python-pam to check kept accounts' Unix passwords.
   python = python3.withPackages (ps: [
     ps.pynacl
     ps.coincurve
     ps.cryptography
+    ps.python-pam
   ]);
 in
 stdenvNoCC.mkDerivation {

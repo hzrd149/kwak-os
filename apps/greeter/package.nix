@@ -16,6 +16,21 @@ let
     icon = "system-log-out";
     categories = [ "System" ];
   };
+  sessionItem = makeDesktopItem {
+    name = "org.kwak.Session";
+    desktopName = "Lock, Switch Account or Log Out";
+    comment = "Lock the screen, switch to another account, or log out";
+    exec = "kwak-session";
+    icon = "system-lock-screen";
+    keywords = [
+      "lock"
+      "logout"
+      "log out"
+      "switch user"
+      "session"
+    ];
+    categories = [ "System" ];
+  };
 in
 stdenvNoCC.mkDerivation {
   pname = "kwak-greeter";
@@ -59,10 +74,18 @@ stdenvNoCC.mkDerivation {
       -o initial_window_width=62c -o initial_window_height=14c \\
       $out/libexec/kwak-greeter-tui --signout
     SH
+    cat > $out/bin/kwak-session <<SH
+    #!${stdenvNoCC.shell}
+    if [ -t 0 ] && [ -t 1 ]; then exec $out/libexec/kwak-greeter-tui --session; fi
+    exec $kitty --class org.kwak.Session --title "Session" \\
+      -o initial_window_width=62c -o initial_window_height=18c \\
+      $out/libexec/kwak-greeter-tui --session
+    SH
     chmod +x $out/bin/*
 
     mkdir -p $out/share/applications
-    cp ${signoutItem}/share/applications/* $out/share/applications/
+    cp ${signoutItem}/share/applications/* ${sessionItem}/share/applications/* \
+      $out/share/applications/
     runHook postInstall
   '';
 

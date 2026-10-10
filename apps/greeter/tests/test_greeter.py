@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import socket
 import struct
+import subprocess
 import sys
 import tempfile
 import queue
@@ -128,7 +129,9 @@ class FakeUserd:
                 card = self.swipes.get(timeout=0.2)
             except queue.Empty:
                 card = None
-            return {"reader": self.reader, "card": card, "seq": 0}
+            requested = fields.get("instance") is not None and getattr(self, "requested", False)
+            self.requested = False
+            return {"reader": self.reader, "card": card, "seq": 0, "requested": requested}
         self.calls.append((op, fields))
         if op == "switch_done":
             return {"closed": True}
@@ -143,9 +146,11 @@ class FakeUserd:
             raise client.UserError("Wrong password.")
         if op == "list_known":
             return PEOPLE
-        if op == "unlock" and fields["username"] == "n82341f882b":
+        if op == "login_bunker":
             if not self.signer.wait(5):
                 raise client.UserError("The signer did not answer.")
+        if op == "login_nsec" and getattr(self, "kept", False) and not fields["password"]:
+            return {"username": "n3bf0c63fcb", "name": "fiatjaf", "password_required": True}
         if op == "create_identity" and len(fields["password"]) not in (0, 6):
             raise client.UserError("Choose a password of at least 4 characters.")
         return {"username": fields.get("username", "nnewnewnew0"), "token": "t"}
@@ -204,46 +209,127 @@ class GreeterAppTests(unittest.IsolatedAsyncioTestCase):
                          ("unlock", {"username": "n3bf0c63fcb", "password": "hunter2"}))
         self.assertEqual(self.greetd.logins, [("n3bf0c63fcb", "t")])
 
-    async def test_remote_signer_shows_loading_until_it_answers(self):
+    async def test_kept_remote_signer_account_asks_for_its_password(self):
         async with self.app.run_test(size=(70, 30)) as pilot:
             await self.settle(pilot)
             await pilot.press("down", "enter")
+            self.assertEqual(pilot.app.page, "unlock")
+            await pilot.press(*"hunter2", "enter")
+            await self.settle(pilot)
+        self.assertEqual(self.userd.calls[-1],
+                         ("unlock", {"username": "n82341f882b", "password": "hunter2"}))
+
+    async def bunker_page(self, pilot):
+        await self.settle(pilot)
+        await pilot.press("end", "enter", "down", "down", "enter")
+        self.assertEqual(pilot.app.page, "bunker")
+        pilot.app.field("bunker-uri").value = "bunker://abc"
+
+    async def test_remote_signer_shows_loading_until_it_answers(self):
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.bunker_page(pilot)
+            await pilot.click("#bunker-go")
             await pilot.pause()
             self.assertEqual(pilot.app.page, "waiting")
             self.assertEqual(self.greetd.logins, [])
             self.userd.signer.set()
             await self.settle(pilot)
-        self.assertEqual(self.greetd.logins, [("n82341f882b", "t")])
+        self.assertEqual(self.userd.calls[-1], ("login_bunker", {
+            "uri": "bunker://abc", "persistent": False, "password": ""}))
+        self.assertEqual(self.greetd.logins, [("nnewnewnew0", "t")])
+
+    async def test_kept_remote_signer_needs_a_password(self):
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.bunker_page(pilot)
+            self.assertFalse(pilot.app.field("bunker-password").display)
+            await pilot.click("#bunker-keep")
+            await pilot.pause()
+            self.assertTrue(pilot.app.field("bunker-password").display)
+            await pilot.click("#bunker-go")
+            await pilot.pause()
+            self.assertIn("Enter a password", str(pilot.app.query_one("#status").render()))
+            pilot.app.field("bunker-password").value = "secret"
+            pilot.app.field("bunker-confirm").value = "secret"
+            self.userd.signer.set()
+            await pilot.click("#bunker-go")
+            await self.settle(pilot)
+        self.assertEqual(self.userd.calls[-1], ("login_bunker", {
+            "uri": "bunker://abc", "persistent": True, "password": "secret"}))
 
     async def test_cancel_leaves_the_loading_page(self):
         async with self.app.run_test(size=(70, 30)) as pilot:
-            await self.settle(pilot)
-            await pilot.press("down", "enter")
+            await self.bunker_page(pilot)
+            await pilot.click("#bunker-go")
             await pilot.pause()
             await pilot.click("#waiting .back")
             await pilot.pause()
-            self.assertEqual(pilot.app.page, "people")
+            self.assertEqual(pilot.app.page, "bunker")
             self.assertFalse(pilot.app.busy)
             self.userd.signer.set()
             await self.settle(pilot)
             self.assertEqual(self.greetd.logins, [])
 
-    async def test_new_account_password_is_optional(self):
+    async def create_page(self, pilot):
+        await self.settle(pilot)
+        await pilot.press("end", "enter")
+        self.assertEqual(pilot.app.page, "add")
+        await pilot.press("enter")
+        self.assertEqual(pilot.app.page, "create")
+
+    async def test_new_account_is_a_guest_by_default(self):
         async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.create_page(pilot)
+            self.assertEqual(pilot.app.focused.id, "create-keep")
+            self.assertFalse(pilot.app.field("create-password").display)
+            await pilot.click("#create-go")
             await self.settle(pilot)
-            await pilot.press("end", "enter")
-            self.assertEqual(pilot.app.page, "add")
-            await pilot.press("enter")
-            self.assertEqual(pilot.app.page, "create")
+        self.assertEqual(self.userd.calls[-1],
+                         ("create_identity", {"persistent": False, "password": ""}))
+        self.assertEqual(self.greetd.logins, [("nnewnewnew0", "t")])
+
+    async def test_kept_new_account_needs_matching_passwords(self):
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.create_page(pilot)
+            await pilot.press("space")
+            await pilot.pause()
+            self.assertEqual(pilot.app.focused.id, "create-password")
+            self.assertTrue(pilot.app.field("create-confirm").display)
             await pilot.press(*"secret", "tab", *"secreX", "enter")
             await pilot.pause()
             self.assertIn("do not match", str(pilot.app.query_one("#status").render()))
-            pilot.app.field("create-password").value = ""
-            pilot.app.field("create-confirm").value = ""
+            pilot.app.field("create-confirm").value = "secret"
             await pilot.click("#create-go")
             await self.settle(pilot)
-        self.assertEqual(self.userd.calls[-1], ("create_identity", {"password": ""}))
-        self.assertEqual(self.greetd.logins, [("nnewnewnew0", "t")])
+        self.assertEqual(self.userd.calls[-1],
+                         ("create_identity", {"persistent": True, "password": "secret"}))
+
+    async def test_key_of_a_kept_account_asks_for_its_password(self):
+        self.userd.kept = True
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.settle(pilot)
+            await pilot.press("end", "enter", "down", "enter")
+            pilot.app.field("key-text").value = "nsec1abc"
+            await pilot.click("#key-go")
+            await self.settle(pilot)
+            self.assertEqual(pilot.app.page, "unlock")
+            await pilot.press(*"hunter2", "enter")
+            await self.settle(pilot)
+        self.assertEqual(self.userd.calls[-1],
+                         ("unlock", {"username": "n3bf0c63fcb", "password": "hunter2"}))
+
+    async def test_ncryptsec_always_asks_for_its_password(self):
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.settle(pilot)
+            await pilot.press("end", "enter", "down", "enter")
+            pilot.app.field("key-text").value = "ncryptsec1abc"
+            await pilot.pause()
+            self.assertTrue(pilot.app.field("key-password").display)
+            self.assertFalse(pilot.app.field("key-confirm").display)
+            pilot.app.field("key-password").value = "pw"
+            await pilot.click("#key-go")
+            await self.settle(pilot)
+        self.assertEqual(self.userd.calls[-1], ("login_ncryptsec", {
+            "ncryptsec": "ncryptsec1abc", "persistent": False, "password": "pw"}))
 
     async def test_escape_goes_back(self):
         async with self.app.run_test(size=(70, 30)) as pilot:
@@ -283,24 +369,27 @@ class GreeterAppTests(unittest.IsolatedAsyncioTestCase):
         async with self.app.run_test(size=(70, 30)) as pilot:
             await self.settle(pilot)
             pilot.app.card_polled({"card": {"id": "c7", "format": "SKC3", "password": "none",
-                                            "signer": True}})
+                                            "known": True, "signer": True}})
             self.assertEqual(pilot.app.page, "waiting")
             await self.settle(pilot)
         self.assertEqual(self.userd.calls[-1], ("card_login", {"card": "c7"}))
         self.assertEqual(self.greetd.logins, [("ncard000000", "t")])
 
-    async def test_new_card_password_is_optional(self):
+    async def test_new_card_can_be_kept_with_a_password(self):
         async with self.app.run_test(size=(70, 30)) as pilot:
             await self.settle(pilot)
             pilot.app.card_polled({"card": {"id": "c2", "format": "SKC1", "known": False,
                                             "username": "ncard000000", "password": "optional"}})
             await pilot.pause()
-            self.assertEqual((pilot.app.page, pilot.app.focused.id), ("card", "card-password"))
+            self.assertEqual((pilot.app.page, pilot.app.focused.id), ("card", "card-keep"))
+            self.assertFalse(pilot.app.field("card-password").display)
+            await pilot.press("space")
+            await pilot.pause()
             self.assertTrue(pilot.app.field("card-confirm").display)
             await pilot.press(*"secret", "tab", *"secret", "enter")
             await self.settle(pilot)
-        self.assertEqual(self.userd.calls[-1],
-                         ("card_login", {"card": "c2", "password": "secret"}))
+        self.assertEqual(self.userd.calls[-1], ("card_login", {
+            "card": "c2", "persistent": True, "password": "secret"}))
         self.assertEqual(self.greetd.logins, [("ncard000000", "t")])
 
     async def test_new_card_without_password_is_a_guest(self):
@@ -311,7 +400,8 @@ class GreeterAppTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             await pilot.click("#card-go")
             await self.settle(pilot)
-        self.assertEqual(self.userd.calls[-1], ("card_login", {"card": "c3", "password": ""}))
+        self.assertEqual(self.userd.calls[-1],
+                         ("card_login", {"card": "c3", "persistent": False, "password": ""}))
 
     async def test_encrypted_card_retries_its_password(self):
         async with self.app.run_test(size=(70, 30)) as pilot:
@@ -327,13 +417,39 @@ class GreeterAppTests(unittest.IsolatedAsyncioTestCase):
             pilot.app.field("card-password").value = "right"
             await pilot.press("enter")
             await self.settle(pilot)
-        self.assertEqual(self.userd.calls[-1], ("card_login", {"card": "c4", "password": "right"}))
+        self.assertEqual(self.userd.calls[-1], ("card_login", {
+            "card": "c4", "persistent": False, "password": "right"}))
+
+    async def test_new_bunker_card_chooses_before_its_signer(self):
+        self.userd.signer.set()
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.settle(pilot)
+            pilot.app.card_polled({"card": {"id": "c8", "format": "SKC3", "known": False,
+                                            "password": "optional", "signer": True}})
+            await pilot.pause()
+            self.assertEqual(pilot.app.page, "card")
+            await pilot.click("#card-go")
+            await self.settle(pilot)
+        self.assertEqual(self.userd.calls[-1],
+                         ("card_login", {"card": "c8", "persistent": False, "password": ""}))
+
+    async def test_encrypted_card_of_a_kept_account_has_no_keep_box(self):
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.settle(pilot)
+            pilot.app.card_polled({"card": {"id": "c9", "format": "SKC2", "known": True,
+                                            "name": "fiatjaf", "password": "required"}})
+            await pilot.pause()
+            self.assertFalse(pilot.app.query_one("#card-keep").display)
+            self.assertEqual(pilot.app.focused.id, "card-password")
+            await pilot.press(*"pw", "enter")
+            await self.settle(pilot)
+        self.assertEqual(self.userd.calls[-1], ("card_login", {"card": "c9", "password": "pw"}))
         self.assertEqual(self.greetd.logins, [("ncard000000", "t")])
 
     async def test_swipe_is_ignored_while_waiting_for_a_signer(self):
         async with self.app.run_test(size=(70, 30)) as pilot:
-            await self.settle(pilot)
-            await pilot.press("down", "enter")
+            await self.bunker_page(pilot)
+            await pilot.click("#bunker-go")
             await pilot.pause()
             pilot.app.card_polled({"card": {"id": "c5", "format": "SKC2",
                                             "password": "required"}})
@@ -361,7 +477,7 @@ class GreeterAppTests(unittest.IsolatedAsyncioTestCase):
             panel = pilot.app.query_one("#panel").region
             self.assertLessEqual(panel.right, 32)
             self.assertLessEqual(panel.bottom, 12)
-            self.assertEqual(pilot.app.focused.id, "card-password")
+            self.assertEqual(pilot.app.focused.id, "card-keep")
 
     async def test_already_signed_in_account_is_switched_to(self):
         self.userd.switched = True
@@ -413,6 +529,16 @@ class SwitchGreeterTests(unittest.IsolatedAsyncioTestCase):
         async with self.app.run_test(size=(70, 30)) as pilot:
             await self.wait_for(pilot, self.closed)
 
+    async def test_stays_open_when_opened_from_the_session_menu(self):
+        self.userd.requested = True
+        async with self.app.run_test(size=(70, 30)) as pilot:
+            await self.wait_for(pilot, lambda: pilot.app.query_one("#people-list").option_count)
+            await pilot.pause(0.5)
+            self.assertFalse(self.closed())
+            self.assertEqual(pilot.app.query_one("#panel").border_title, "SWITCH ACCOUNT")
+            await pilot.press("escape")
+            await self.wait_for(pilot, self.closed)
+
     async def test_escape_goes_back_to_the_locked_session(self):
         self.userd.swipes.put({"id": "c1", "format": "SKC2", "password": "required"})
         async with self.app.run_test(size=(70, 30)) as pilot:
@@ -446,22 +572,100 @@ class SwitchGreeterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.greetd.logins, [])
 
 
-class SignOutAppTests(unittest.IsolatedAsyncioTestCase):
-    async def test_confirm_signs_out(self):
-        calls = []
-        app = greeter.SignOutApp(lambda op, **fields: calls.append(op))
-        async with app.run_test(size=(50, 16)) as pilot:
-            await pilot.click("#signout")
+class FakeSession:
+    """A session's view of kwak-userd and the commands the menu runs."""
+
+    def __init__(self, info):
+        self.info = info
+        self.calls = []
+        self.commands = []
+
+    def __call__(self, op, timeout=180, **fields):
+        self.calls.append(op)
+        if op == "session_info":
+            if self.info is None:
+                raise client.UserError("Permission denied.")
+            return self.info
+        return {}
+
+    def run(self, args, check=False):
+        self.commands.append(args)
+        return subprocess.CompletedProcess(args, 0)
+
+
+KEPT = {"username": "n3bf0c63fcb", "name": "fiatjaf", "temporary": False}
+GUEST = {"username": "nab12cd34ef", "name": "nab12cd34ef", "temporary": True}
+
+
+class SessionAppTests(unittest.IsolatedAsyncioTestCase):
+    def app(self, info, page="menu"):
+        self.session = FakeSession(info)
+        return greeter.SessionApp(self.session, self.session.run, page=page,
+                                  logout=["uwsm", "stop"])
+
+    async def menu(self, pilot):
+        await pilot.app.workers.wait_for_complete()
+        await pilot.pause()
+        options = pilot.app.query_one("#menu-list")
+        return [options.get_option_at_index(i).id for i in range(options.option_count)]
+
+    async def test_kept_account_menu(self):
+        app = self.app(KEPT)
+        async with app.run_test(size=(64, 20)) as pilot:
+            self.assertEqual(await self.menu(pilot), ["lock", "switch", "logout", "signout"])
+            self.assertEqual(pilot.app.focused.id, "menu-list")
+            await pilot.press("enter")
+        self.assertEqual(self.session.commands, [["loginctl", "lock-session"]])
+        self.assertEqual(app.return_value, 0)
+
+    async def test_guest_cannot_lock_and_logging_out_deletes_it(self):
+        app = self.app(GUEST)
+        async with app.run_test(size=(64, 20)) as pilot:
+            self.assertEqual(await self.menu(pilot), ["switch", "logout"])
+            await pilot.press("down", "enter")
+            self.assertEqual(pilot.app.page, "logout")
+            self.assertIn("permanently deleted",
+                          str(pilot.app.query_one("#logout-hint").render()))
+            await pilot.click("#logout-go")
+        self.assertEqual(self.session.commands, [["uwsm", "stop"]])
+
+    async def test_local_account_has_no_sign_out(self):
+        app = self.app(None)
+        async with app.run_test(size=(64, 20)) as pilot:
+            self.assertEqual(await self.menu(pilot), ["lock", "switch", "logout"])
+
+    async def test_switch_account_asks_kwak_userd(self):
+        app = self.app(KEPT)
+        async with app.run_test(size=(64, 20)) as pilot:
+            await self.menu(pilot)
+            await pilot.press("down", "enter")
             await pilot.app.workers.wait_for_complete()
-        self.assertEqual(calls, ["signout"])
+        self.assertEqual(self.session.calls, ["session_info", "switch_account"])
+        self.assertEqual(app.return_value, 0)
+
+    async def test_log_out_starts_on_cancel(self):
+        app = self.app(KEPT)
+        async with app.run_test(size=(64, 20)) as pilot:
+            await self.menu(pilot)
+            await pilot.press("down", "down", "enter")
+            self.assertEqual(pilot.app.page, "logout")
+            await pilot.press("enter")
+            self.assertEqual(pilot.app.page, "menu")
+        self.assertEqual(self.session.commands, [])
+
+    async def test_confirm_signs_out(self):
+        app = self.app(KEPT, page="signout")
+        async with app.run_test(size=(64, 20)) as pilot:
+            await pilot.click("#signout-go")
+            await pilot.app.workers.wait_for_complete()
+        self.assertIn("signout", self.session.calls)
         self.assertEqual(app.return_value, 0)
 
     async def test_escape_cancels(self):
-        calls = []
-        app = greeter.SignOutApp(lambda op, **fields: calls.append(op))
-        async with app.run_test(size=(50, 16)) as pilot:
+        app = self.app(KEPT, page="signout")
+        async with app.run_test(size=(64, 20)) as pilot:
             await pilot.press("escape")
-        self.assertEqual(calls, [])
+        self.assertNotIn("signout", self.session.calls)
         self.assertEqual(app.return_value, 1)
 
 

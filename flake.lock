@@ -376,11 +376,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1791399113,
-        "narHash": "sha256-+YZl/C7bq6BuxDz5Q4oM+6laq90lw0Ebt2/npJAOuto=",
+        "lastModified": 1791647508,
+        "narHash": "sha256-wsfU0bDFyaEFlR2YdFS//rpZEFTuBC6MerbzO0gdffs=",
         "owner": "hzrd149",
         "repo": "kwakore",
-        "rev": "f1810d9d90e89d70433a84a0b98824b9f8c2ddf2",
+        "rev": "f7b9e396bbaad87b55b7432bbf33f6b3fb77d480",
         "type": "github"
       },
       "original": {

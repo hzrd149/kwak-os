@@ -17,14 +17,14 @@
       "flakes"
     ];
 
-    networking.networkmanager.enable = true;
+    networking.networkmanager.enable = lib.mkDefault true;
     services.openssh = {
-      enable = true;
-      openFirewall = true;
+      enable = lib.mkDefault true;
+      openFirewall = lib.mkDefault true;
       settings = {
-        PermitRootLogin = "yes";
-        PasswordAuthentication = true;
-        KbdInteractiveAuthentication = false;
+        PermitRootLogin = lib.mkDefault "yes";
+        PasswordAuthentication = lib.mkDefault true;
+        KbdInteractiveAuthentication = lib.mkDefault false;
       };
     };
 
@@ -48,8 +48,5 @@
       git
       vim
     ];
-
-    # Installation compatibility version; do not bump during routine upgrades.
-    system.stateVersion = "26.05";
   };
 }

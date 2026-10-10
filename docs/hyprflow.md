@@ -16,12 +16,19 @@ The modal submap consumes unrelated keys until the overview closes.
 
 ## Configuration and packaging
 
-Edit `config/hypr/hyprflow.lua` to change the bindings or `workspace_count`.
+Edit `config/hypr/hyprflow.lua` to change the bindings or plugin settings.
+The overview provides nine cards through `workspace_count = 9`. Workspace cards
+preserve their native aspect ratio. Optional settings include `workspace_overlay`,
+`background_color`, `background_opacity`, `background_blur`, `reflection_opacity`,
+`show_labels`, and `center_y`, alongside size, spacing, and border controls. See
+the [upstream configuration guide](https://github.com/sandwichfarm/hyprflow/blob/b4de91659bb82a9e283fbc6ff542eb83a7ee8bba/docs/configuration.md)
+for defaults, valid ranges, and examples.
+
 Nix assembles it with `config/hypr/hyprland.lua` into the system default at
 `/etc/xdg/hypr/hyprland.lua`, substituting the immutable plugin path. A user's own
 `~/.config/hypr/hyprland.lua` still takes precedence.
 
-The source is pinned to `2607d5de36902f8d770679bb40d72fa4a240c85c`. The plugin is
+The source is pinned to `b4de91659bb82a9e283fbc6ff542eb83a7ee8bba`. The plugin is
 built with the exact Hyprland package's compiler, headers, and dependencies.
 The Makefile's Lua selection is overridden to match this compositor's Lua 5.5.
 No upstream C++ changes or prebuilt plugin binaries are used.
@@ -38,11 +45,13 @@ nix run .#vm
 
 ## Verification
 
-The source build and upstream motion tests passed, including 12,001 geometry
+The original integration at `2607d5de36902f8d770679bb40d72fa4a240c85c`
+passed the source build and upstream motion tests, including 12,001 geometry
 samples. In the built NixOS VM, 17 QEMU keyboard actions verified automatic
 loading, Super+Tab, arrows, numeric selection, Enter, Escape, input isolation,
 focus restoration, configuration reload, and three unload/reload cycles while
-open. The compositor stayed alive with no configuration errors.
+open. The compositor stayed alive with no configuration errors. The screenshots
+and receipts below document that original revision.
 
 ![Hyprflow selecting workspace 3 in the VM](proofs/hyprflow/overview.png)
 

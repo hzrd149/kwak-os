@@ -9,27 +9,43 @@ ISO logs straight into `kwak` instead (`kwak.nostrUsers.enable = false`).
 
 The sign-in screen (`kwak-greeter`) is a terminal app in a full-screen kitty
 window, run in `cage` by greetd. Use the mouse, or the arrow keys, Tab, Enter, and
-Esc to go back. It lists every account on the computer. Choosing one signs in to it:
+Esc to go back. It lists every account on the computer.
+
+There are two kinds of account:
+- **Kept accounts** stay on the computer and have a Unix password. That password
+  signs them in, switches to their session, and unlocks their screen. A swipe of
+  the account's card does the same.
+- **Guests** have no password. A guest and all its files are deleted when it logs
+  out. Guests are only listed while they exist.
+
+Choosing an account from the list:
 
 | Account | Choosing it |
 | --- | --- |
-| **Password** (an ncryptsec) | Asks for the password and decrypts the key. |
-| **Remote signer** (a bunker) | Shows a loading screen until the signer approves the login. Cancel goes back. |
-| **Guest** (an nsec without a password) | Starts the session straight away. Guests are only listed while they exist, until they log out. |
+| **Password** or **Remote signer** (kept) | Asks for the account's password, or a swipe of its card. |
+| **Guest** | Starts the session straight away. |
 
-Below the list, **Sign in with another account…** offers:
+Below the list, **Sign in with another account…** offers the ways to set up an
+account. Each has a **Keep this account on this computer** box. It starts off, which
+makes a guest. Checking it asks for a password, typed twice, and keeps the account.
 
 | Option | What happens |
 | --- | --- |
-| **New account** | Asks for an optional password, then generates a new key and starts the session. With a password the key is kept as an ncryptsec; without one the account is a guest, deleted with its key at logout. |
-| **Existing account** | Paste an nsec or ncryptsec. An nsec with a password is kept as an ncryptsec (NIP-49) protected by that password; an nsec without one signs in as a guest. An ncryptsec is checked with its password and kept as given. |
-| **Remote signer** | Paste a bunker:// URI. The signer must sign a fresh challenge while the loading screen shows. The user is created for the pubkey that signed it, and the URI is kept. |
+| **New account** | Generates a new key and starts the session. A kept account stores the key as an ncryptsec (NIP-49) under its password. |
+| **Existing account** | Paste an nsec or ncryptsec. A kept nsec is stored as an ncryptsec under the chosen password. An ncryptsec always asks for its own password; kept, it is stored as given and that password becomes the account's password. A guest holds the key in memory only. |
+| **Remote signer** | Paste a bunker:// URI. The signer must sign a fresh challenge while the loading screen shows. The user is created for the pubkey that signed it. The URI is stored, for a guest too, until the account is deleted, because signing goes through it. |
 | **Linux user** | A normal username and password, such as the `kwak` administrator. |
 
 The rules for keys that are already on the computer:
-- **Adding a password** to a guest, by signing in with the nsec and a password, makes it saved.
-- **Signing in with the nsec and no password** to a saved identity keeps it saved and leaves its stored key alone.
-- **Signing in with the nsec and a new password** replaces the old password.
+- **A key or bunker of a kept account** isn't enough to sign in to it. The greeter
+  then asks for the account's password (or a swipe of its card).
+- **Keeping a guest**, by signing in with its key and the keep box checked, gives it
+  a password and stores its key.
+
+For nsec and ncryptsec accounts, the Unix password and the ncryptsec password are
+the same. Unlocking with it also decrypts the key, so signing keeps working.
+Changing it with `passwd` would leave the stored ncryptsec under the old password,
+and signing would stop until you sign in again.
 
 Plaintext secret keys are never written to disk. Passwords and keys are passed to
 `nak` on stdin or in its environment, never as command-line arguments.
@@ -43,10 +59,11 @@ works like a pasted key:
 
 | Card | Swiping it |
 | --- | --- |
-| **SKC1** (a plain secret key) of an account on the computer | Signs in straight away. A saved account keeps its stored key and password. |
-| **SKC1** not on the computer yet | Asks for an optional password, like **New account**. With one, the key is kept as an ncryptsec; without one, the account is a guest. |
-| **SKC2** (an ncryptsec) | Asks for the card's password. The ncryptsec is kept, so later the password alone signs in, from the list. |
-| **SKC3** (an nbunksec bunker connection) | Shows the loading screen while the card's remote signer signs the login challenge, like **Remote signer**. The signer must already have paired the card's client key (the `skc tui` write flow pairs it). The bunker connection and client key are kept, so the account can then be chosen from the list. |
+| **SKC1** (a plain secret key) of an account on the computer | Signs in straight away. The swipe authenticates it, so a kept account needs no password. |
+| **SKC1** not on the computer yet | Offers the keep box, like **New account**: a guest, or kept with a password. |
+| **SKC2** (an ncryptsec) | Asks for the card's password, which is needed to decrypt the key. A new card offers the keep box; kept, the card's password becomes the account's password. |
+| **SKC3** (an nbunksec bunker connection) of an account on the computer | Shows the loading screen while the card's remote signer signs the login challenge. No password. |
+| **SKC3** not on the computer yet | Offers the keep box, then connects to the card's signer, like **Remote signer**. The signer must already have paired the card's client key (the `skc tui` write flow pairs it). The bunker connection and client key are stored. |
 
 - **Swiping during a session switches accounts** (see below). Swipes are never
   typed into a window, because the reader's keyboard output stays switched off
@@ -75,8 +92,8 @@ sign-in screen) switches to that card's account:
 
 | The card's account | What happens |
 | --- | --- |
-| Already signed in | The current session locks, and the screen switches to that account's session and unlocks it, with no password or signer. Swiping your own card unlocks your locked session. |
-| Anything else | The current session locks, and a **Switch account** sign-in screen opens on the next free virtual terminal to handle the swipe, as at the normal sign-in screen: it asks for an SKC2 card's password, or connects to an SKC3 card's signer, creating the user if needed. The new session then runs there. Esc on that screen goes back to the locked session. |
+| Already signed in | The current session locks, and the screen switches to that account's session and unlocks it. The card authenticates the account, so no password is asked. Swiping your own card unlocks your locked session. |
+| Anything else | The current session locks, and a **Switch account** sign-in screen opens on the next free virtual terminal to handle the swipe, as at the normal sign-in screen: it offers a new card the keep box, asks for an SKC2 card's password, or connects to an SKC3 card's signer. The new session then runs there. Esc on that screen goes back to the locked session. |
 
 A card is recognised as an account's from its key (SKC1), from the ncryptsec stored
 when it first signed in (SKC2: the same card, not just the same key), or from the
@@ -84,14 +101,14 @@ stored signer and client key (SKC3). So once an SKC2 card has signed in, the car
 alone reopens that account's running session; keep it as safe as an SKC1 card.
 
 Signing in to an account that already has a session, from any sign-in screen,
-switches to that session instead of starting a second one.
+switches to that session instead of starting a second one. From the list, a kept
+account's session needs its password (or its card), so one person can't switch
+into another's session.
 
 **The lock screen** is hyprlock, run by hypridle when a session is locked (and
 before suspend). Unlock it with:
-- **A password account:** its password.
-- **A remote signer account:** press Enter with no password and approve on the
-  signer.
-- **Any card account:** a swipe of its card.
+- **A kept account:** its password, or a swipe of its card.
+- **A guest:** Enter.
 - **A local account** such as `kwak`: its Unix password.
 
 Guest sessions are not locked when switching away, since a guest has no password
@@ -100,6 +117,20 @@ and anyone could open it from the account list anyway.
 When a switched-to session logs out, its sign-in screen closes and the screen goes
 back to another session (locked), or to the sign-in screen on the first virtual
 terminal.
+
+## Lock, switch account, or log out
+
+**Lock, Switch Account or Log Out** in the launcher (or Super+Shift+M, or
+`kwak-session`) opens the session menu:
+
+| Option | What it does |
+| --- | --- |
+| **Lock** | Locks the screen (also Super+L). Unlock with your password or card. Not offered to guests, who have no password. |
+| **Switch account** | Locks this session and opens the **Switch account** sign-in screen. Your session keeps running, so you can go back to it with your password or card. Esc on that screen returns to it straight away. |
+| **Log out** | Asks first, then ends the desktop session and returns to the sign-in screen. A kept account stays on the computer. For a guest, logging out deletes the account. |
+| **Sign out of this computer** | Deletes a kept account (see below). |
+
+Local accounts such as `kwak` get **Lock**, **Switch account** and **Log out**.
 
 ## Signing out
 
@@ -114,7 +145,8 @@ After you confirm, a separate job:
 Your Nostr identity itself is not affected.
 
 Temporary users are removed the same way when their session closes. If the machine
-crashes first, `kwak-userd-cleanup.service` removes them at the next boot.
+crashes first, `kwak-userd-cleanup.service` removes them at the next boot. It also
+finishes a saved account's deletion if sign-out was interrupted by a restart.
 
 ## Napplets
 
@@ -137,15 +169,31 @@ give kwakore your key.
 `kwakore signer status` shows the signer. `kwakore signer switch none` signs napplets
 out for good, and `kwakore signer switch system` signs them back in.
 
+To give each newly created account a starting set of napplets, configure their
+addresses in Nix:
+
+```nix
+kwak.nostrUsers.defaultNapplets = [
+  "nostr:naddr1..."
+];
+```
+
+The list defaults to empty. Account creation copies it into the new home; a
+user service installs those napplets when the account first signs in. Failed
+installs retry at a later sign-in. Once a default installs, the user can remove
+it without it returning. Changing the Nix list affects newly created accounts,
+not existing ones.
+
 ## How it works
 
 - `kwak-userd` is a root service on `/run/kwak-userd.sock` and knows who is calling
   from the caller's Unix UID:
   - The `greeter` user may sign in or create identities.
   - Root may redeem login tokens and remove users.
-  - A Nostr user may only sign themselves out, and check their own password or
-    signer to unlock their locked session (hyprlock's PAM stack runs
-    `kwak-userd pam-unlock`). Their kwakore daemon may also sign as them (see
+  - A Nostr user may only sign themselves out, check their own password to
+    unlock their locked session (hyprlock's PAM stack runs `kwak-userd pam-unlock`),
+    and lock their own session to open a switch greeter (`switch_account`, which
+    local accounts may also use). Their kwakore daemon may also sign as them (see
     [Napplets](#napplets)).
   - The `kwak-cards` reader service may only pass on card swipes.
 - **Sign-in** gives the greeter a single-use login token, valid for 60 seconds. The
@@ -155,8 +203,10 @@ out for good, and `kwakore signer switch system` signs them back in.
   `loginctl`, and opens a switch greeter as `kwak-greeter-switch@ID.service`, a
   greetd instance on the next free VT whose greeter runs `kwak-greeter --switch ID`.
   Only the greeter whose session is on screen gets swipes.
-- **Accounts** get UIDs from 30000–39999, the `nostr` group, and a locked Unix
-  password, so they cannot log in over SSH.
+- **Accounts** get UIDs from 30000–39999 and the `nostr` group. A kept account's
+  Unix password is set with `chpasswd`. kwak-userd checks it through the
+  `kwak-userd` PAM service, which uses pam_unix only. A guest's password stays
+  locked. sshd denies the `nostr` group, so these accounts can't log in over SSH.
 - **The registry** in `/var/lib/kwak-userd/users.json` binds each username to its
   full public key. A different key with the same 10-character prefix is refused.
   Only users in the registry and in that UID range can be removed.
