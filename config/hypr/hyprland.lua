@@ -123,7 +123,11 @@ hl.bind("SUPER + Q", hl.dsp.exec_cmd("kitty"))
 hl.bind("SUPER + E", hl.dsp.exec_cmd("dolphin"))
 hl.bind("SUPER + C", hl.dsp.window.close())
 hl.bind("SUPER + F", hl.dsp.window.fullscreen({ mode = "fullscreen" }))
-hl.bind("SUPER + SHIFT + M", hl.dsp.exec_cmd("uwsm stop"))
+hl.bind("SUPER + L", hl.dsp.exec_cmd("loginctl lock-session"))
+-- The session menu: lock, switch account, log out. The live ISO has no Nostr
+-- accounts and so no menu; there it logs out straight away.
+hl.bind("SUPER + SHIFT + M", hl.dsp.exec_cmd(
+    "command -v kwak-session >/dev/null && exec kwak-session || exec uwsm stop"))
 
 for _, direction in ipairs({ "left", "right", "up", "down" }) do
     hl.bind("SUPER + " .. direction, function()

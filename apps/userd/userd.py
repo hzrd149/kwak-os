@@ -520,6 +520,13 @@ def log(message):
     print(f"kwak-userd: {message}", file=sys.stderr, flush=True)
 
 
+def pam_check(username, password):
+    """Check a Unix password through the kwak-userd PAM service (pam_unix only)."""
+    import pam  # python-pam; imported here so the tests run without it.
+
+    return pam.pam().authenticate(username, password, service="kwak-userd")
+
+
 def usb_ids(path):
     """The (vendor, product) of the USB device above a sysfs path, if any."""
     for parent in (path, *path.parents):
@@ -628,8 +635,9 @@ class Sessions:
 
 class UserManager:
     def __init__(self, config=None, run=subprocess.run, nak=None, clock=time.monotonic,
-                 users=pwd, executable=None, sessions=None):
+                 users=pwd, executable=None, sessions=None, password_check=None):
         self.config = config or load_config()
+        self.password_check = password_check or pam_check
         self.run = run
         self.nak = nak or Nak(run)
         self.sessions = sessions or Sessions(run)
@@ -654,6 +662,8 @@ class UserManager:
         # each one was started from.
         self.switch_started = None
         self.switch_from = {}
+        # Switch greeters opened from a session's menu rather than by a swipe.
+        self.switch_requests = set()
 
     # Registry ---------------------------------------------------------------
 
@@ -683,32 +693,39 @@ class UserManager:
 
     # Sign-in ------------------------------------------------------------------
 
-    def login_nsec(self, nsec, password=None):
-        """With a password the identity is kept as an ncryptsec; without one it is temporary."""
+    def login_nsec(self, nsec, password=None, persistent=False, card=False):
+        """A kept identity is stored as an ncryptsec under its password; a guest stores nothing."""
         secret = secret_hex(nsec)
         pubkey = self.nak.public_key(secret)
-        if not password:
-            return self._login(pubkey, "nsec", None, secret=secret)
+        if not persistent:
+            return self._login(pubkey, "nsec", None, password=password, secret=secret, card=card)
         self._check_password(password)
         return self._login(pubkey, "ncryptsec", {"ncryptsec": ncryptsec_encrypt(secret, password)},
-                           secret=secret)
+                           persistent=True, password=password, secret=secret, card=card)
 
-    def login_ncryptsec(self, ncryptsec, password):
+    def login_ncryptsec(self, ncryptsec, password, persistent=False, card=False):
+        """The ncryptsec's own password also becomes a kept account's password."""
         secret = ncryptsec_decrypt(ncryptsec, password)
         pubkey = self.nak.public_key(secret)
-        return self._login(pubkey, "ncryptsec", {"ncryptsec": ncryptsec.strip()}, secret=secret)
+        if not persistent:
+            # A guest keeps the decrypted key in memory only, like a pasted nsec.
+            return self._login(pubkey, "nsec", None, password=password, secret=secret, card=card)
+        if not password:
+            raise UserError("A kept account needs a password.")
+        return self._login(pubkey, "ncryptsec", {"ncryptsec": ncryptsec.strip()},
+                           persistent=True, password=password, secret=secret, card=card)
 
-    def login_bunker(self, uri, username=None, client_key=None):
+    def login_bunker(self, uri, client_key=None, password=None, persistent=False, card=False):
         """Confirm the bunker's pubkey; nak's client state is kept so the signer remembers us.
 
         ``client_key`` is the paired client key from an SKC3 card. It is kept with
-        nak's client state, so later sign-ins and signing use it too.
+        nak's client state, so later sign-ins and signing use it too. A guest
+        keeps them too, until it is deleted, because kwakore signs through them.
         """
         uri = uri.strip()
-        if username:
-            home = self.key_dir(username) / "nak"
-        else:
-            home = self.state / "bunker-clients" / secrets.token_hex(8)
+        if persistent:
+            self._check_password(password)
+        home = self.state / "bunker-clients" / secrets.token_hex(8)
         home.mkdir(mode=0o700, parents=True, exist_ok=True)
         if client_key is not None:
             if not HEX_KEY.match(client_key):
@@ -716,64 +733,103 @@ class UserManager:
             write_private(home / "client-key", client_key + "\n")
         try:
             pubkey = self.nak.bunker_pubkey(uri, home)
-            if username and username_for(pubkey) != username:
-                raise UserError("The signer answered for a different identity.")
-            result = self._login(pubkey, "bunker", {"bunker": uri})
-            if not username:
+            result = self._login(pubkey, "bunker", {"bunker": uri}, persistent=persistent,
+                                 password=password, card=card)
+            if not result.get("password_required"):
                 client = self.key_dir(result["username"]) / "nak"
                 shutil.rmtree(client, ignore_errors=True)
                 shutil.move(home, client)
             return result
         finally:
-            if not username:
-                shutil.rmtree(home, ignore_errors=True)
+            shutil.rmtree(home, ignore_errors=True)
 
-    def create_identity(self, password=None):
+    def create_identity(self, password=None, persistent=False):
         secret = self.nak.generate()
         pubkey = self.nak.public_key(secret)
         ncryptsec = None
-        if password:
+        if persistent:
             self._check_password(password)
             ncryptsec = ncryptsec_encrypt(secret, password)
-            result = self._login(pubkey, "ncryptsec", {"ncryptsec": ncryptsec}, new=True,
-                                 secret=secret)
+            result = self._login(pubkey, "ncryptsec", {"ncryptsec": ncryptsec}, persistent=True,
+                                 password=password, new=True, secret=secret)
         else:
             result = self._login(pubkey, "nsec", None, new=True, secret=secret)
         result.update(nsec=bech32_encode("nsec", bytes.fromhex(secret)), ncryptsec=ncryptsec)
         return result
 
     def unlock(self, username, password=None):
-        """Sign in to an identity on this computer.
+        """Sign in to an identity on this computer, or switch to its session.
 
-        A temporary nsec identity has no password and opens directly; saved ones
-        need their ncryptsec password or the bunker's approval.
+        A guest has no password and opens directly. A kept account needs its
+        Unix password (or a swipe of its card, through ``card_login``).
         """
         entry = self.entry(username)
         if entry is None or entry.get("pending_removal"):
             raise UserError("Unknown identity.")
         if entry.get("temporary"):
             return self._grant(username, True, entry.get("name") or username)
-        material = json.loads((self.key_dir(username) / "key.json").read_text())
-        if entry["method"] == "bunker":
-            return self.login_bunker(material["bunker"], username)
-        return self.login_ncryptsec(material["ncryptsec"], password or "")
+        self.verify_password(username, password)
+        return self._grant(username, False, entry.get("name") or username,
+                           self._decrypt_saved(username, entry, password))
+
+    def _decrypt_saved(self, username, entry, password):
+        """A kept ncryptsec key, decrypted with the account password, to sign with."""
+        if entry["method"] != "ncryptsec":
+            return None
+        try:
+            material = json.loads((self.key_dir(username) / "key.json").read_text())
+            return ncryptsec_decrypt(material["ncryptsec"], password)
+        except (OSError, ValueError, KeyError, UserError) as error:
+            # The Unix password was changed some other way; signing stays off.
+            log(f"cannot decrypt the key of {username}: {error}")
+            return None
 
     @staticmethod
     def _check_password(password):
         if len(password or "") < 4:
             raise UserError("Choose a password of at least 4 characters.")
 
-    def _login(self, pubkey, method, material, new=False, secret=None):
+    def verify_password(self, username, password):
+        """Check a kept account's Unix password."""
+        if not password:
+            raise UserError("Enter this account's password.")
+        if not self.password_check(username, password):
+            raise UserError("Wrong password.")
+
+    def set_password(self, username, password):
+        if any(char in password for char in "\n\r\0"):
+            raise UserError("The password cannot contain line breaks.")
+        result = self.run(["chpasswd"], input=f"{username}:{password}\n", capture_output=True,
+                          text=True, check=False)
+        if result.returncode:
+            raise UserError(f"chpasswd failed: {(result.stderr or result.stdout).strip()}")
+
+    def _login(self, pubkey, method, material, persistent=False, password=None, new=False,
+               secret=None, card=False):
         """Create or reuse the user for ``pubkey`` and issue a login token.
 
-        ``material`` is the key to keep (an ncryptsec or bunker URI). None signs
-        in without saving anything: a new user is then temporary, and an
-        existing saved user keeps its stored key. ``secret`` is the decrypted
-        key, held for the session once the token is redeemed.
+        A kept account already on this computer needs its password, unless
+        ``card`` says a swipe of its card authenticated it. Without one, the
+        result asks for it instead of granting anything.
+
+        ``persistent`` keeps a new or guest account, with ``password`` as its
+        Unix password and ``material`` as its stored key (an ncryptsec or bunker
+        URI). Otherwise a new account is a guest; a guest bunker also stores its
+        URI, as kwakore signs through it. ``secret`` is the decrypted key, held
+        for the session once the token is redeemed.
         """
         username = username_for(pubkey)
+        existing = self.entry(username)
+        if existing and not existing.get("temporary") and not existing.get("pending_removal") \
+                and existing["pubkey"] == pubkey and not card:
+            if not password:
+                return {"username": username, "password_required": True,
+                        "name": existing.get("name") or username}
+            self.verify_password(username, password)
+            if secret is None:
+                secret = self._decrypt_saved(username, existing, password)
         # Network lookups happen before taking the registry lock.
-        events = self.nak.fetch(pubkey, self.config["relays"]) if not self.entry(username) else []
+        events = self.nak.fetch(pubkey, self.config["relays"]) if not existing else []
         with self.registry() as data:
             entry = data.get(username)
             if entry and entry.get("pending_removal"):
@@ -786,16 +842,26 @@ class UserManager:
                 raise UserError("Generated a key that already exists; try again.")
             if entry is None:
                 taken = {other["uid"] for other in data.values()}
-                entry = self.provision(username, pubkey, method, taken, events)
-                entry["temporary"] = material is None
+                entry = self.provision(username, pubkey, method, taken, events,
+                                       password=password if persistent else None)
+                entry["temporary"] = not persistent
                 data[username] = entry
-            if material is not None:
-                # Saving a key makes a temporary identity permanent.
+                save = material is not None
+            elif entry.get("temporary"):
+                # Keeping a guest gives it a password and stores its key.
+                save = persistent or (material is not None and method == "bunker")
+                if persistent:
+                    self.set_password(username, password)
+                    entry["temporary"] = False
+            else:
+                # A kept account refreshes its stored key on a new sign-in with one.
+                save = material is not None
+            if save:
                 keys = self.key_dir(username)
                 keys.parent.mkdir(mode=0o700, exist_ok=True)
                 keys.mkdir(mode=0o700, exist_ok=True)
                 write_private(keys / "key.json", json.dumps(material) + "\n")
-                entry.update(method=method, temporary=False)
+                entry["method"] = method
             temporary = entry["temporary"]
         return self._grant(username, temporary, entry.get("name") or username, secret)
 
@@ -823,8 +889,11 @@ class UserManager:
             raise UserError(f"{args[0]} failed: {(result.stderr or result.stdout).strip()}")
         return result
 
-    def provision(self, username, pubkey, method, taken, events):
-        """Create the Unix account; the caller holds the registry lock."""
+    def provision(self, username, pubkey, method, taken, events, password=None):
+        """Create the Unix account; the caller holds the registry lock.
+
+        A kept account gets ``password`` as its Unix password; a guest's stays locked.
+        """
         if not USERNAME.match(username):
             raise UserError("Invalid identity name.")
         if self._exists(username):
@@ -852,6 +921,8 @@ class UserManager:
             relays = relay_list(latest(events, 10002, pubkey))
             if relays:
                 write_private(config / "relays.json", json.dumps(relays) + "\n", owner=owner)
+            if password is not None:
+                self.set_password(username, password)
             self._save_avatar(username, profile.get("picture"))
             self._run_hooks(username, pubkey, home)
         except BaseException:
@@ -913,7 +984,8 @@ class UserManager:
         session is locked and a switch greeter opens on a new VT to handle it. A
         card of an account that is already signed in (an SKC1 card's key, or an
         SKC2 or SKC3 card that signed in to it before) unlocks and switches
-        straight to that account's session instead, from anywhere.
+        straight to that account's session instead, from anywhere: the swipe
+        itself authenticates, so no password is asked.
 
         The secret stays here under an opaque id. The greeter only gets a summary
         and signs in with ``card_login``.
@@ -975,6 +1047,7 @@ class UserManager:
                 entry = self.entry(username)
                 return ({"id": card_id, "format": "SKC1", "username": username,
                          "known": entry is not None,
+                         "temporary": bool((entry or {}).get("temporary")),
                          "name": (entry or {}).get("name") or username,
                          "password": "none" if entry else "optional"},
                         {"format": "SKC1", "secret": secret})
@@ -983,7 +1056,8 @@ class UserManager:
                 if not uri.startswith("bunker://") or not HEX_KEY.match(client_key):
                     raise UserError("Not a bunker connection.")
                 secret = {"format": "SKC3", "bunker": uri, "client_key": client_key}
-                summary = {"id": card_id, "format": "SKC3", "password": "none", "signer": True}
+                summary = {"id": card_id, "format": "SKC3", "password": "optional",
+                           "signer": True}
                 return self._recognise(summary, secret), secret
             if event.get("format") == "SKC2":
                 ncryptsec = event["ncryptsec"].strip().lower()
@@ -1005,14 +1079,18 @@ class UserManager:
         owner = self._card_owner(secret)
         if owner is not None:
             username, entry = owner
-            summary.update(known=True, username=username,
+            summary.update(known=True, username=username, temporary=bool(entry.get("temporary")),
                            name=entry.get("name") or username)
+            if summary["format"] == "SKC3":
+                # The paired signer authenticates it; there is nothing to choose.
+                summary["password"] = "none"
         return summary
 
     def _card_owner(self, secret):
         with self.registry() as data:
+            # A guest bunker keeps its URI too, so its card is recognised.
             saved = [(name, dict(entry)) for name, entry in data.items()
-                     if not entry.get("temporary")]
+                     if not entry.get("pending_removal")]
         for username, entry in saved:
             keys = self.key_dir(username)
             try:
@@ -1030,12 +1108,17 @@ class UserManager:
                 continue
         return None
 
-    def wait_card(self, after=None, wait=30, pid=None):
+    def wait_card(self, after=None, wait=30, pid=None, instance=None):
         """Wait for a swipe newer than ``after``; also says if a reader is plugged in.
 
         Only the greeter on screen gets swipes. ``after=0`` also returns a swipe
-        made just before the greeter started, such as one that opened it.
+        made just before the greeter started, such as one that opened it. A
+        switch greeter's ``instance`` also learns, once, whether it was opened
+        by ``switch_account`` rather than a swipe.
         """
+        with self.cards:
+            requested = instance in self.switch_requests
+            self.switch_requests.discard(instance)
         wait = max(0, min(float(wait), 30))
         with self.cards:
             if after is None:
@@ -1052,10 +1135,15 @@ class UserManager:
             self.switch_started = None
         # A switch greeter that is no longer on screen closes itself.
         return {"reader": card_reader_present(self.config["hidraw"]), "card": card,
-                "seq": seq, "on_screen": on_screen}
+                "seq": seq, "on_screen": on_screen, "requested": requested}
 
-    def card_login(self, card, password=None):
-        """Sign in with a swiped card, like a pasted nsec or ncryptsec."""
+    def card_login(self, card, password=None, persistent=False):
+        """Sign in with a swiped card, like a pasted nsec, ncryptsec or bunker.
+
+        The swipe authenticates an account already on this computer, so it needs
+        no account password. A new card's account is a guest unless
+        ``persistent`` keeps it with ``password``.
+        """
         with self.cards:
             swipe = self.swipes.get(card)
             if swipe is not None and swipe["expires"] <= self.clock():
@@ -1064,11 +1152,13 @@ class UserManager:
         if swipe is None:
             raise UserError("The card swipe has expired. Swipe the card again.")
         if swipe["format"] == "SKC1":
-            result = self.login_nsec(swipe["secret"], password)
+            result = self.login_nsec(swipe["secret"], password, persistent, card=True)
         elif swipe["format"] == "SKC3":
-            result = self.login_bunker(swipe["bunker"], client_key=swipe["client_key"])
+            result = self.login_bunker(swipe["bunker"], client_key=swipe["client_key"],
+                                       password=password, persistent=persistent, card=True)
         else:
-            result = self.login_ncryptsec(swipe["ncryptsec"], password or "")
+            result = self.login_ncryptsec(swipe["ncryptsec"], password or "", persistent,
+                                          card=True)
         # A wrong password keeps the swipe, so the person can try again.
         with self.cards:
             self.swipes.pop(card, None)
@@ -1091,16 +1181,42 @@ class UserManager:
         self.sessions.activate(session["id"])
         self.sessions.unlock(session["id"])
 
-    def _start_switch_greeter(self, previous):
+    def _start_switch_greeter(self, previous, requested=False):
         with self.cards:
             # One greeter at a time: a starting one picks up the latest swipe.
             if self.switch_started is not None and self.clock() - self.switch_started < 15:
-                return
+                return None
             self.switch_started = self.clock()
-        instance = secrets.token_hex(8)
+            instance = secrets.token_hex(8)
+            if requested:
+                self.switch_requests.add(instance)
         self.switch_from[instance] = previous["id"]
         self._command(["systemctl", "start", "--no-block",
                        f"{self.config['switch_unit']}@{instance}.service"])
+        return instance
+
+    def switch_account(self, username, pid):
+        """Lock the caller's session and open a sign-in screen to switch accounts.
+
+        For the session menu: a kept account's session is locked, so going back
+        to it needs its password or card. Escape on that screen goes back.
+        """
+        session = self.sessions.of_pid(pid) if pid is not None else None
+        if session is None or session["class"] != "user" or session["user"] != username:
+            raise UserError("Not called from your own session.")
+        if self._start_switch_greeter(session, requested=True) is None:
+            raise UserError("A sign-in screen is already opening.")
+        log(f"switch account: locking session {session['id']} and opening a switch greeter")
+        self._lock(session)
+        return {"opened": True}
+
+    def session_info(self, username):
+        """What the session menu offers: whether this account is a guest."""
+        entry = self.managed(username)
+        if entry is None:
+            raise UserError("Not a Nostr identity.")
+        return {"username": username, "name": entry.get("name") or username,
+                "temporary": bool(entry.get("temporary"))}
 
     def switch_done(self, instance, pid=None):
         """Close a switch greeter and, if it is on screen, return to a session.
@@ -1130,21 +1246,18 @@ class UserManager:
         return {"closed": True}
 
     def check_unlock(self, username, password=None):
-        """Check an identity's own way in, to unlock its locked session."""
+        """Check a kept account's Unix password, to unlock its locked session.
+
+        A guest has no password. A swipe of the account's card unlocks it
+        without this, through ``card_swipe``.
+        """
         entry = self.managed(username)
         if entry is None:
             raise UserError("Not a Nostr identity.")
         if entry.get("temporary"):
             return {"ok": True}
-        material = json.loads((self.key_dir(username) / "key.json").read_text())
-        secret = None
-        if entry["method"] == "bunker":
-            pubkey = self.nak.bunker_pubkey(material["bunker"], self.key_dir(username) / "nak")
-        else:
-            secret = ncryptsec_decrypt(material["ncryptsec"], password or "")
-            pubkey = self.nak.public_key(secret)
-        if pubkey != entry["pubkey"]:
-            raise UserError("That key belongs to a different identity.")
+        self.verify_password(username, password)
+        secret = self._decrypt_saved(username, entry, password)
         if secret is not None:
             # Unlocking also restores signing after kwak-userd restarted.
             self._hold(username, secret)
@@ -1450,7 +1563,10 @@ GREETER_OPS = {"list_known", "login_nsec", "login_ncryptsec", "login_bunker",
                "create_identity", "unlock", "wait_card", "card_login", "switch_done"}
 CARD_OPS = {"card_swipe"}
 ROOT_OPS = GREETER_OPS | {"redeem", "close_session", "remove", "list"}
-IDENTITY_OPS = {"signout", "account_settings", "publish_settings", "check_unlock"}
+IDENTITY_OPS = {"signout", "account_settings", "publish_settings", "check_unlock",
+                "session_info", "switch_account"}
+# Local accounts such as kwak can switch accounts from their session too.
+LOCAL_OPS = {"switch_account"}
 SIGNER_OPS = {"signer.get_public_key", "signer.sign_event", "signer.nip44_encrypt",
               "signer.nip44_decrypt", "signer.nip04_encrypt", "signer.nip04_decrypt"}
 
@@ -1491,6 +1607,7 @@ class Server:
             or (role == "greeter" and op in GREETER_OPS)
             or (role == "card" and op in CARD_OPS)
             or (role == "identity" and op in IDENTITY_OPS | SIGNER_OPS)
+            or (role == "unknown" and name is not None and op in LOCAL_OPS)
         )
         if not allowed:
             raise UserError("Permission denied.")
@@ -1500,10 +1617,14 @@ class Server:
         handlers = {
             "list_known": lambda: m.known(),
             "list": lambda: m.known(),
-            "login_nsec": lambda: m.login_nsec(r["nsec"], r.get("password")),
-            "login_ncryptsec": lambda: m.login_ncryptsec(r["ncryptsec"], r["password"]),
-            "login_bunker": lambda: m.login_bunker(r["uri"]),
-            "create_identity": lambda: m.create_identity(r.get("password")),
+            "login_nsec": lambda: m.login_nsec(r["nsec"], r.get("password"),
+                                               bool(r.get("persistent"))),
+            "login_ncryptsec": lambda: m.login_ncryptsec(r["ncryptsec"], r["password"],
+                                                         bool(r.get("persistent"))),
+            "login_bunker": lambda: m.login_bunker(r["uri"], password=r.get("password"),
+                                                   persistent=bool(r.get("persistent"))),
+            "create_identity": lambda: m.create_identity(r.get("password"),
+                                                         bool(r.get("persistent"))),
             "unlock": lambda: m.unlock(r["username"], r.get("password")),
             "redeem": lambda: m.redeem(r["username"], r["token"]),
             "close_session": lambda: m.close_session(r["username"]),
@@ -1511,10 +1632,14 @@ class Server:
             "signout": lambda: m.request_signout(name),
             "account_settings": lambda: m.account_settings(name),
             "publish_settings": lambda: m.publish_settings(name, r["section"], r["value"], r.get("password")),
-            "wait_card": lambda: m.wait_card(r.get("after"), r.get("wait", 30), pid),
+            "wait_card": lambda: m.wait_card(r.get("after"), r.get("wait", 30), pid,
+                                             r.get("instance")),
+            "switch_account": lambda: m.switch_account(name, pid),
+            "session_info": lambda: m.session_info(name),
             "switch_done": lambda: m.switch_done(r["instance"], pid),
             "check_unlock": lambda: m.check_unlock(name, r.get("password")),
-            "card_login": lambda: m.card_login(r["card"], r.get("password")),
+            "card_login": lambda: m.card_login(r["card"], r.get("password"),
+                                               bool(r.get("persistent"))),
             "card_swipe": lambda: m.card_swipe(r),
         }
         return handlers[op]()

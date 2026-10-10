@@ -33,6 +33,11 @@ class System:
         self.accounts = {"greeter": Account("greeter", 990, "/var/empty")}
         self.commands = []
         self.processes = set()
+        # Unix passwords set with chpasswd.
+        self.passwords = {}
+
+    def check_password(self, username, password):
+        return username in self.passwords and self.passwords[username] == password
 
     def getpwnam(self, name):
         return self.accounts[name]
@@ -57,6 +62,9 @@ class System:
             self.processes.discard(int(args[-1]))
         elif args[0] == "pgrep":
             code = 0 if int(args[-1]) in self.processes else 1
+        elif args[0] == "chpasswd":
+            username, password = kwargs["input"].rstrip("\n").split(":", 1)
+            self.passwords[username] = password
         return subprocess.CompletedProcess(args, code, "", "")
 
 
@@ -210,6 +218,7 @@ class ManagerCase(unittest.TestCase):
         self.manager = userd.UserManager(
             self.config, run=self.system, nak=self.nak, clock=self.clock, users=self.system,
             executable="/bin/kwak-userd", sessions=self.sessions,
+            password_check=self.system.check_password,
         )
 
     def commands(self, name):
@@ -226,7 +235,7 @@ USER = "n3bf0c63fcb"
 class AccountSettingsTests(ManagerCase):
     def setUp(self):
         super().setUp()
-        self.manager.login_nsec("11" * 32, "hunter2")
+        self.manager.login_nsec("11" * 32, "hunter2", True)
         self.nak.events = [
             {"kind": 0, "pubkey": PUBKEY, "created_at": 1,
              "content": json.dumps({"name": "old", "custom": "preserved"})},
@@ -294,7 +303,7 @@ class ProvisioningTests(ManagerCase):
             {"kind": 10002, "pubkey": PUBKEY, "created_at": 1,
              "tags": [["r", "wss://relay.example"], ["r", "http://bad"]]},
         ]
-        result = self.manager.login_nsec("11" * 32, "hunter2")
+        result = self.manager.login_nsec("11" * 32, "hunter2", True)
         self.assertEqual(result["username"], USER)
         useradd = self.system.commands[0]
         self.assertEqual(useradd[0], "useradd")
@@ -308,20 +317,20 @@ class ProvisioningTests(ManagerCase):
         )
 
     def test_second_login_reuses_user(self):
-        self.manager.login_nsec("11" * 32, "hunter2")
-        self.manager.login_nsec("11" * 32, "hunter2")
+        self.manager.login_nsec("11" * 32, "hunter2", True)
+        self.manager.login_nsec("11" * 32, "hunter2", True)
         self.assertEqual(len(self.commands("useradd")), 1)
 
     def test_prefix_collision_is_refused(self):
-        self.manager.login_nsec("11" * 32, "hunter2")
+        self.manager.login_nsec("11" * 32, "hunter2", True)
         self.nak.pubkey = OTHER
         with self.assertRaisesRegex(userd.UserError, "different key"):
-            self.manager.login_nsec("22" * 32, "hunter2")
+            self.manager.login_nsec("22" * 32, "hunter2", True)
 
     def test_existing_system_account_is_refused(self):
         self.system.accounts[USER] = Account(USER, 1000, "/home/x")
         with self.assertRaisesRegex(userd.UserError, "already exists"):
-            self.manager.login_nsec("11" * 32, "hunter2")
+            self.manager.login_nsec("11" * 32, "hunter2", True)
 
     def test_failed_setup_removes_the_new_account(self):
         hooks = Path(self.config["hooks"])
@@ -330,7 +339,7 @@ class ProvisioningTests(ManagerCase):
         (hooks / "10-test").chmod(0o755)
         with patch.object(self.manager, "_run_hooks", side_effect=OSError("disk full")):
             with self.assertRaises(OSError):
-                self.manager.login_nsec("11" * 32, "hunter2")
+                self.manager.login_nsec("11" * 32, "hunter2", True)
         self.assertEqual(len(self.commands("userdel")), 1)
         self.assertNotIn(USER, self.system.accounts)
         self.assertIsNone(self.manager.entry(USER))
@@ -341,13 +350,13 @@ class ProvisioningTests(ManagerCase):
         hook = hooks / "10-test"
         hook.write_text("#!/bin/sh\n")
         hook.chmod(0o755)
-        self.manager.login_nsec("11" * 32, "hunter2")
+        self.manager.login_nsec("11" * 32, "hunter2", True)
         self.assertIn([str(hook)], self.system.commands)
 
 
 class NsecTests(ManagerCase):
     def test_password_saves_identity_as_ncryptsec(self):
-        result = self.manager.login_nsec("11" * 32, "hunter2")
+        result = self.manager.login_nsec("11" * 32, "hunter2", True)
         self.assertFalse(result["temporary"])
         entry = self.manager.entry(USER)
         self.assertEqual((entry["method"], entry["temporary"]), ("ncryptsec", False))
@@ -370,36 +379,49 @@ class NsecTests(ManagerCase):
 
     def test_short_password_is_refused_before_provisioning(self):
         with self.assertRaisesRegex(userd.UserError, "at least 4"):
-            self.manager.login_nsec("11" * 32, "abc")
+            self.manager.login_nsec("11" * 32, "abc", True)
         self.assertEqual(self.commands("useradd"), [])
 
     def test_adding_a_password_keeps_a_temporary_identity(self):
         self.manager.login_nsec("11" * 32)
-        result = self.manager.login_nsec("11" * 32, "hunter2")
+        result = self.manager.login_nsec("11" * 32, "hunter2", True)
         self.assertFalse(result["temporary"])
         self.assertFalse(self.manager.entry(USER)["temporary"])
         self.assertIsNotNone(self.stored_key())
         self.assertEqual(len(self.commands("useradd")), 1)
 
-    def test_saved_identity_stays_saved_without_password(self):
+    def test_saved_account_sets_the_unix_password(self):
+        self.manager.login_nsec("11" * 32, "hunter2", True)
+        self.assertEqual(self.system.passwords, {USER: "hunter2"})
+
+    def test_guest_has_no_unix_password(self):
         self.manager.login_nsec("11" * 32, "hunter2")
+        self.assertTrue(self.manager.entry(USER)["temporary"])
+        self.assertEqual(self.system.passwords, {})
+        self.assertIsNone(self.stored_key())
+
+    def test_saved_account_asks_for_its_password(self):
+        self.manager.login_nsec("11" * 32, "hunter2", True)
         before = self.stored_key()
         result = self.manager.login_nsec("11" * 32)
-        self.assertFalse(result["temporary"])
+        self.assertEqual((result["username"], result["password_required"]), (USER, True))
+        self.assertNotIn("token", result)
         self.assertEqual(self.stored_key(), before)
+        self.assertIn("token", self.manager.login_nsec("11" * 32, "hunter2"))
 
-    def test_new_password_replaces_the_old_one(self):
-        self.manager.login_nsec("11" * 32, "hunter2")
-        self.manager.login_nsec("11" * 32, "correct horse")
+    def test_saved_account_refuses_another_password(self):
+        self.manager.login_nsec("11" * 32, "hunter2", True)
         with self.assertRaisesRegex(userd.UserError, "Wrong password"):
-            self.manager.unlock(USER, "hunter2")
-        self.assertIn("token", self.manager.unlock(USER, "correct horse"))
+            self.manager.login_nsec("11" * 32, "correct horse", True)
+        with self.assertRaisesRegex(userd.UserError, "Wrong password"):
+            self.manager.unlock(USER, "correct horse")
+        self.assertIn("token", self.manager.unlock(USER, "hunter2"))
 
 
 class NcryptsecTests(ManagerCase):
     def test_ncryptsec_is_saved_as_given(self):
         ncryptsec = userd.ncryptsec_encrypt("11" * 32, "hunter2", log_n=10)
-        result = self.manager.login_ncryptsec(ncryptsec, "hunter2")
+        result = self.manager.login_ncryptsec(ncryptsec, "hunter2", True)
         self.assertFalse(result["temporary"])
         self.assertEqual(self.stored_key(), {"ncryptsec": ncryptsec})
         self.assertEqual(self.manager.entry(USER)["method"], "ncryptsec")
@@ -436,31 +458,39 @@ class BunkerTests(ManagerCase):
     URI = "bunker://abc?relay=wss%3A%2F%2Fr&secret=x"
 
     def test_confirmed_bunker_is_saved(self):
-        result = self.manager.login_bunker(self.URI)
+        result = self.manager.login_bunker(self.URI, password="hunter2", persistent=True)
         self.assertEqual(result["username"], USER)
         self.assertFalse(result["temporary"])
         self.assertEqual(self.stored_key(), {"bunker": self.URI})
         self.assertEqual(self.manager.entry(USER)["method"], "bunker")
         self.assertTrue((self.manager.key_dir(USER) / "nak").is_dir())
         self.assertEqual(list((Path(self.config["state_dir"]) / "bunker-clients").iterdir()), [])
-        self.assertIn("token", self.manager.unlock(USER))
+        self.assertEqual(self.system.passwords, {USER: "hunter2"})
+        self.assertIn("token", self.manager.unlock(USER, "hunter2"))
+
+    def test_guest_bunker_keeps_its_uri_until_deleted(self):
+        result = self.manager.login_bunker(self.URI)
+        self.assertTrue(result["temporary"])
+        self.assertEqual(self.stored_key(), {"bunker": self.URI})
+        self.assertEqual(self.system.passwords, {})
 
     def test_unconfirmed_bunker_creates_nothing(self):
         with patch.object(self.nak, "bunker_pubkey", side_effect=userd.UserError("timeout")):
             with self.assertRaises(userd.UserError):
-                self.manager.login_bunker(self.URI)
+                self.manager.login_bunker(self.URI, password="hunter2", persistent=True)
         self.assertEqual(self.commands("useradd"), [])
 
-    def test_unlock_refuses_a_different_signer(self):
-        self.manager.login_bunker(self.URI)
-        self.nak.pubkey = OTHER.replace("3bf0c63fcb", "aaaaaaaaaa")
-        with self.assertRaisesRegex(userd.UserError, "different identity"):
-            self.manager.unlock(USER)
+    def test_unlock_needs_the_password_not_the_signer(self):
+        self.manager.login_bunker(self.URI, password="hunter2", persistent=True)
+        with patch.object(self.nak, "bunker_pubkey", side_effect=AssertionError("asked")):
+            with self.assertRaisesRegex(userd.UserError, "Enter this account's password"):
+                self.manager.unlock(USER)
+            self.assertIn("token", self.manager.unlock(USER, "hunter2"))
 
 
 class CreateTests(ManagerCase):
     def test_create_with_password_is_saved(self):
-        result = self.manager.create_identity("hunter2")
+        result = self.manager.create_identity("hunter2", True)
         self.assertFalse(result["temporary"])
         self.assertTrue(result["nsec"].startswith("nsec1"))
         self.assertEqual(userd.ncryptsec_decrypt(result["ncryptsec"], "hunter2"), "11" * 32)
@@ -479,7 +509,7 @@ class CreateTests(ManagerCase):
 
 class SessionTests(ManagerCase):
     def test_token_is_single_use_bound_and_expires(self):
-        token = self.manager.login_nsec("11" * 32, "hunter2")["token"]
+        token = self.manager.login_nsec("11" * 32, "hunter2", True)["token"]
         with self.assertRaises(userd.UserError):
             self.manager.redeem("greeter", token)
         token = self.manager.unlock(USER, "hunter2")["token"]
@@ -497,7 +527,7 @@ class SessionTests(ManagerCase):
         self.assertEqual(self.commands("systemd-run")[-1][-3:], ["/bin/kwak-userd", "remove", USER])
 
     def test_logout_keeps_saved_identity(self):
-        self.manager.login_nsec("11" * 32, "hunter2")
+        self.manager.login_nsec("11" * 32, "hunter2", True)
         self.assertEqual(self.manager.close_session(USER), {"scheduled": False})
         self.assertEqual(self.manager.close_session("kwak"), {"scheduled": False})
         self.assertEqual(self.commands("systemd-run"), [])
@@ -505,14 +535,14 @@ class SessionTests(ManagerCase):
 
 class RemovalTests(ManagerCase):
     def test_signout_survives_interrupted_removal(self):
-        self.manager.login_nsec("11" * 32, "hunter2")
+        self.manager.login_nsec("11" * 32, "hunter2", True)
         self.manager.request_signout(USER)
         self.assertTrue(self.manager.entry(USER)["pending_removal"])
         self.assertEqual(self.manager.known(), [])
         with self.assertRaises(userd.UserError):
             self.manager.unlock(USER, "hunter2")
         with self.assertRaises(userd.UserError):
-            self.manager.login_nsec("11" * 32, "hunter2")
+            self.manager.login_nsec("11" * 32, "hunter2", True)
         # A new daemon instance at boot must finish the deletion.
         restarted = userd.UserManager(
             self.config, run=self.system, nak=self.nak, clock=self.clock,
@@ -523,7 +553,7 @@ class RemovalTests(ManagerCase):
         self.assertNotIn(USER, self.system.accounts)
 
     def test_remove_cleans_up_in_order(self):
-        self.manager.login_nsec("11" * 32, "hunter2")
+        self.manager.login_nsec("11" * 32, "hunter2", True)
         home = Path(self.system.accounts[USER].pw_dir)
         self.system.processes.add(30000)
         self.system.commands.clear()
@@ -542,14 +572,14 @@ class RemovalTests(ManagerCase):
         for name in ("kwak", "greeter", "n0000000000", "../etc"):
             with self.assertRaises(userd.UserError):
                 self.manager.remove(name)
-        self.manager.login_nsec("11" * 32, "hunter2")
+        self.manager.login_nsec("11" * 32, "hunter2", True)
         self.system.accounts[USER].pw_uid = 1000
         with self.assertRaises(userd.UserError):
             self.manager.remove(USER)
         self.assertEqual(self.commands("userdel"), [])
 
     def test_cleanup_removes_only_temporary_identities(self):
-        self.manager.login_nsec("11" * 32, "hunter2")
+        self.manager.login_nsec("11" * 32, "hunter2", True)
         self.nak.pubkey = "ab" * 32
         self.manager.login_nsec("22" * 32)
         removed = self.manager.cleanup_temporary(wait=lambda _: None)
@@ -620,23 +650,32 @@ class CardTests(ManagerCase):
 
     def test_unknown_skc1_with_password_is_saved(self):
         card = self.swipe(format="SKC1", secret_key="11" * 32)
-        self.assertFalse(self.manager.card_login(card["id"], "hunter2")["temporary"])
+        self.assertFalse(self.manager.card_login(card["id"], "hunter2", True)["temporary"])
         self.assertIn("ncryptsec", self.stored_key())
+        self.assertEqual(self.system.passwords, {USER: "hunter2"})
 
     def test_known_skc1_signs_in_and_keeps_stored_key(self):
-        self.manager.login_nsec("11" * 32, "hunter2")
+        self.manager.login_nsec("11" * 32, "hunter2", True)
         stored = self.stored_key()
         card = self.swipe(format="SKC1", secret_key="11" * 32)
         self.assertEqual((card["known"], card["password"]), (True, "none"))
+        # The swipe authenticates it: no account password.
         self.assertIn("token", self.manager.card_login(card["id"]))
         self.assertEqual(self.stored_key(), stored)
+
+    def test_known_skc2_needs_only_the_card_password(self):
+        ncryptsec = userd.ncryptsec_encrypt("11" * 32, "card", log_n=10)
+        self.manager.login_nsec("11" * 32, "hunter2", True)
+        card = self.swipe(format="SKC2", ncryptsec=ncryptsec)
+        self.assertIn("token", self.manager.card_login(card["id"], "card"))
+        self.assertEqual(self.system.passwords, {USER: "hunter2"})
 
     def test_skc2_wrong_password_keeps_the_swipe(self):
         ncryptsec = userd.ncryptsec_encrypt("11" * 32, "hunter2", log_n=10)
         card = self.swipe(format="SKC2", ncryptsec=ncryptsec)
         with self.assertRaisesRegex(userd.UserError, "Wrong password"):
-            self.manager.card_login(card["id"], "nope")
-        self.assertFalse(self.manager.card_login(card["id"], "hunter2")["temporary"])
+            self.manager.card_login(card["id"], "nope", True)
+        self.assertFalse(self.manager.card_login(card["id"], "hunter2", True)["temporary"])
         self.assertEqual(self.stored_key(), {"ncryptsec": ncryptsec})
         with self.assertRaisesRegex(userd.UserError, "expired"):
             self.manager.card_login(card["id"], "hunter2")
@@ -658,17 +697,20 @@ class CardTests(ManagerCase):
         uri = "bunker://" + "ab" * 32 + "?relay=wss%3A%2F%2Fr"
         card = self.swipe(format="SKC3", bunker=uri, client_key="22" * 32)
         self.assertEqual((card["format"], card["password"], card["signer"]),
-                         ("SKC3", "none", True))
+                         ("SKC3", "optional", True))
         self.assertNotIn("22" * 32, json.dumps(card))
-        result = self.manager.card_login(card["id"])
+        result = self.manager.card_login(card["id"], "hunter2", True)
         self.assertEqual((result["username"], result["temporary"]), (USER, False))
         self.assertEqual(self.nak.bunker_env["NOSTR_CLIENT_KEY"], "22" * 32)
         # The paired client key stays with nak's state for later sign-ins.
         self.assertEqual(self.stored_key(), {"bunker": uri})
         self.assertEqual((self.manager.key_dir(USER) / "nak" / "client-key").read_text(),
                          "22" * 32 + "\n")
+        # Swiped again, the card is known and signs in without a password.
         self.nak.bunker_env = None
-        self.manager.unlock(USER)
+        card = self.swipe(format="SKC3", bunker=uri, client_key="22" * 32)
+        self.assertEqual((card["known"], card["password"]), (True, "none"))
+        self.assertIn("token", self.manager.card_login(card["id"]))
         self.assertEqual(self.nak.bunker_env["NOSTR_CLIENT_KEY"], "22" * 32)
 
     def test_skc3_card_with_unanswered_signer_creates_nothing(self):
@@ -794,7 +836,7 @@ class SwitchTests(ManagerCase):
         self.assertNotIn("11" * 32, lines)
 
     def test_card_of_a_signed_in_account_switches_back(self):
-        self.manager.login_nsec("11" * 32, "hunter2")
+        self.manager.login_nsec("11" * 32, "hunter2", True)
         self.sessions.add("c5", USER)
         self.manager.card_swipe({"format": "SKC1", "secret_key": "11" * 32})
         self.assertEqual(self.sessions.log, [("lock", "c3"), ("activate", "c5"),
@@ -803,7 +845,7 @@ class SwitchTests(ManagerCase):
 
     def test_skc2_card_of_a_signed_in_account_switches_back(self):
         ncryptsec = userd.ncryptsec_encrypt("11" * 32, "hunter2", log_n=10)
-        self.manager.login_ncryptsec(ncryptsec, "hunter2")
+        self.manager.login_ncryptsec(ncryptsec, "hunter2", True)
         self.sessions.add("c5", USER)
         # The same card, as kwak-cards encodes it (lowercase bech32 either way).
         self.manager.card_swipe({"format": "SKC2", "ncryptsec": ncryptsec.upper()})
@@ -813,7 +855,7 @@ class SwitchTests(ManagerCase):
 
     def test_other_skc2_card_opens_the_switch_greeter(self):
         self.manager.login_ncryptsec(userd.ncryptsec_encrypt("11" * 32, "hunter2", log_n=10),
-                                     "hunter2")
+                                     "hunter2", True)
         self.sessions.add("c5", USER)
         # Same key, but a different encryption: not the card that signed in.
         other = userd.ncryptsec_encrypt("11" * 32, "hunter2", log_n=10)
@@ -823,7 +865,7 @@ class SwitchTests(ManagerCase):
 
     def test_skc3_card_of_a_signed_in_account_switches_back(self):
         uri = "bunker://" + "ab" * 32 + "?relay=wss%3A%2F%2Fr"
-        self.manager.login_bunker(uri, client_key="22" * 32)
+        self.manager.login_bunker(uri, client_key="22" * 32, password="hunter2", persistent=True)
         self.sessions.add("c5", USER)
         self.manager.card_swipe({"format": "SKC3", "bunker": uri, "client_key": "33" * 32})
         self.assertEqual(len(self.started()), 1, "a different client key is another card")
@@ -834,7 +876,7 @@ class SwitchTests(ManagerCase):
         self.assertEqual(len(self.started()), 1)
 
     def test_swipe_at_a_sign_in_screen_switches_to_an_open_account(self):
-        self.manager.login_nsec("11" * 32, "hunter2")
+        self.manager.login_nsec("11" * 32, "hunter2", True)
         self.sessions.add("c5", USER)
         self.sessions.active_id = "c1"
         self.manager.card_swipe({"format": "SKC1", "secret_key": "11" * 32})
@@ -861,12 +903,38 @@ class SwitchTests(ManagerCase):
         self.assertEqual((self.sessions.log, self.started()), ([], []))
 
     def test_signing_in_to_an_open_account_switches_to_it(self):
-        self.manager.login_nsec("11" * 32, "hunter2")
+        self.manager.login_nsec("11" * 32, "hunter2", True)
         self.sessions.add("c5", USER)
-        grant = self.manager.login_nsec("11" * 32)
+        self.assertTrue(self.manager.login_nsec("11" * 32)["password_required"])
+        self.assertEqual(self.sessions.log, [])
+        grant = self.manager.unlock(USER, "hunter2")
         self.assertTrue(grant["switched"])
         self.assertNotIn("token", grant)
         self.assertEqual(self.sessions.log[-2:], [("activate", "c5"), ("unlock", "c5")])
+
+    def test_switch_account_locks_and_opens_a_greeter_that_stays(self):
+        self.manager.login_nsec("11" * 32, "hunter2", True)
+        self.sessions.add("c5", USER, pid=700)
+        self.sessions.active_id = "c5"
+        self.assertEqual(self.manager.switch_account(USER, 700), {"opened": True})
+        self.assertIn(("lock", "c5"), self.sessions.log)
+        instance = self.started()[0][-1].split("@")[1].split(".")[0]
+        self.assertTrue(self.manager.wait_card(after=0, wait=0, instance=instance)["requested"])
+        # Only once: a restart of that greeter after a session ends closes it.
+        self.assertFalse(self.manager.wait_card(after=0, wait=0, instance=instance)["requested"])
+
+    def test_switch_account_only_from_your_own_session(self):
+        self.manager.login_nsec("11" * 32, "hunter2", True)
+        self.sessions.add("c5", "n0000000000", pid=700)
+        with self.assertRaisesRegex(userd.UserError, "your own session"):
+            self.manager.switch_account(USER, 700)
+        with self.assertRaisesRegex(userd.UserError, "your own session"):
+            self.manager.switch_account(USER, None)
+        self.assertEqual(self.started(), [])
+
+    def test_session_info_says_whether_it_is_a_guest(self):
+        self.manager.login_nsec("11" * 32)
+        self.assertTrue(self.manager.session_info(USER)["temporary"])
 
     def switch_greeter(self):
         self.manager.card_swipe(self.SKC2)
@@ -905,16 +973,16 @@ class SwitchTests(ManagerCase):
 class UnlockTests(ManagerCase):
     def test_ncryptsec_password_unlocks(self):
         self.manager.login_ncryptsec(userd.ncryptsec_encrypt("11" * 32, "hunter2", log_n=10),
-                                     "hunter2")
+                                     "hunter2", True)
         self.assertEqual(self.manager.check_unlock(USER, "hunter2"), {"ok": True})
         with self.assertRaisesRegex(userd.UserError, "Wrong password"):
             self.manager.check_unlock(USER, "nope")
 
-    def test_bunker_unlocks_when_the_signer_answers(self):
-        self.manager.login_bunker("bunker://abc?relay=wss%3A%2F%2Fr")
-        self.assertEqual(self.manager.check_unlock(USER), {"ok": True})
-        self.nak.pubkey = OTHER
-        with self.assertRaisesRegex(userd.UserError, "different identity"):
+    def test_bunker_unlocks_with_its_password(self):
+        self.manager.login_bunker("bunker://abc?relay=wss%3A%2F%2Fr", password="hunter2",
+                                  persistent=True)
+        self.assertEqual(self.manager.check_unlock(USER, "hunter2"), {"ok": True})
+        with self.assertRaisesRegex(userd.UserError, "Enter this account's password"):
             self.manager.check_unlock(USER)
 
     def test_guest_unlocks_without_password(self):
@@ -930,7 +998,7 @@ class PermissionTests(ManagerCase):
     def setUp(self):
         super().setUp()
         self.server = userd.Server(self.manager)
-        self.manager.login_nsec("11" * 32, "hunter2")
+        self.manager.login_nsec("11" * 32, "hunter2", True)
         self.system.accounts["kwak"] = Account("kwak", 1000, "/home/kwak")
         self.system.accounts["kwak-cards"] = Account("kwak-cards", 991, "/var/empty")
 
@@ -949,6 +1017,10 @@ class PermissionTests(ManagerCase):
         self.assertFalse(self.allowed(990, "close_session", username=USER))
         self.assertFalse(self.allowed(1000, "list_known"))
         self.assertFalse(self.allowed(1000, "signout"))
+        self.assertFalse(self.allowed(1000, "session_info"))
+        self.assertTrue(self.allowed(1000, "switch_account"))
+        self.assertTrue(self.allowed(30000, "switch_account"))
+        self.assertFalse(self.allowed(990, "switch_account"))
         self.assertFalse(self.allowed(30000, "login_nsec", nsec="x", password="y"))
         self.assertFalse(self.allowed(12345, "list_known"))
         self.assertTrue(self.allowed(0, "list"))
@@ -1052,12 +1124,12 @@ class SignerTests(ManagerCase):
 
     def log_in(self):
         token = self.manager.login_ncryptsec(
-            userd.ncryptsec_encrypt("11" * 32, "hunter2", log_n=10), "hunter2")["token"]
+            userd.ncryptsec_encrypt("11" * 32, "hunter2", log_n=10), "hunter2", True)["token"]
         self.manager.redeem(SIGNING_USER, token)
 
     def test_key_is_held_only_once_the_token_is_redeemed(self):
         token = self.manager.login_ncryptsec(
-            userd.ncryptsec_encrypt("11" * 32, "hunter2", log_n=10), "hunter2")["token"]
+            userd.ncryptsec_encrypt("11" * 32, "hunter2", log_n=10), "hunter2", True)["token"]
         with self.assertRaisesRegex(userd.UserError, "No key is held"):
             self.sign()
         self.manager.redeem(SIGNING_USER, token)
@@ -1114,7 +1186,7 @@ class SignerTests(ManagerCase):
         self.assertEqual(self.sign(), SIGNING_PUBKEY)
 
     def test_bunker_signs_through_nak_but_does_not_encrypt(self):
-        token = self.manager.login_bunker("bunker://abc?relay=wss%3A%2F%2Fr")["token"]
+        token = self.manager.login_bunker("bunker://abc?relay=wss%3A%2F%2Fr", password="hunter2", persistent=True)["token"]
         self.manager.redeem(SIGNING_USER, token)
         template = {"kind": 1, "created_at": 1, "tags": [], "content": "hi"}
         self.assertEqual(self.sign("signer.sign_event", event=template)["pubkey"], SIGNING_PUBKEY)

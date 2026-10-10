@@ -30,7 +30,7 @@ let
   hyprlockConfig = pkgs.writeText "hyprlock.conf" ''
     general {
       hide_cursor = false
-      # Bunker accounts unlock by approving on their signer: Enter with no password.
+      # A guest has no password: Enter with an empty field unlocks it.
       ignore_empty_input = false
     }
     background {
@@ -59,7 +59,7 @@ let
       fail_color = rgb(ff5f5f)
       font_family = DejaVu Sans Mono
       fade_on_empty = false
-      placeholder_text = Password · Enter for your signer · or swipe your card
+      placeholder_text = Password · or swipe your card
       fail_text = $FAIL
       position = 0, 0
       halign = center
@@ -133,7 +133,7 @@ in
       type = lib.types.bool;
       default = true;
       description = ''
-        Sign in by swiping a Nostr swipe card (SKC1 or SKC2) on an MSR90 reader.
+        Sign in by swiping a Nostr swipe card (SKC1, SKC2 or SKC3) on an MSR90 reader.
         The reader service starts when the reader is plugged in.
       '';
     };
@@ -163,6 +163,9 @@ in
     ];
 
     users.groups.nostr = { };
+    # Kept Nostr accounts have Unix passwords for the sign-in and lock screens;
+    # they are not for logging in over SSH.
+    services.openssh.settings.DenyGroups = [ "nostr" ];
 
     environment.etc = {
       "kwak/userd.json".text = builtins.toJSON {
@@ -328,9 +331,17 @@ in
       restartIfChanged = false;
     };
 
+    # kwak-userd checks a kept account's Unix password through this service, to
+    # sign it in or switch to it from the greeter and to unlock its session.
+    security.pam.services.kwak-userd = {
+      unixAuth = true;
+    };
+
     # Switching accounts locks the session left behind. hypridle runs hyprlock
-    # on loginctl lock-session; Nostr identities unlock with their password,
-    # their signer, or a swipe of their card, and other users with pam_unix.
+    # on loginctl lock-session; a kept Nostr account unlocks with its Unix
+    # password (checked by kwak-userd, which also holds its key again for
+    # signing) or a swipe of its card, a guest with Enter, and other users with
+    # pam_unix.
     programs.hyprlock.enable = true;
     systemd.user.services.hypridle.serviceConfig.ExecStart = [
       ""
