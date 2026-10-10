@@ -5,6 +5,9 @@ The launcher is Wofi with a small opt-in `horizontal_grid` patch, retaining its
 upstream desktop-entry discovery, search, and execution. Four columns of three
 icons are visible; additional columns scroll horizontally.
 
+The wallpaper screenshots on this page predate the five-layer cityscape.
+See [current wallpaper configuration and proof](wallpaper.md).
+
 ## Current launcher spacing
 
 The launcher now uses 160×160 cells, 64-pixel icons, 16-pixel labels, and an
@@ -149,9 +152,10 @@ recognition, physical-machine boot, and GPU compatibility require hardware UAT.
 - The release's Nix lock provides Glaze 8 while its CMake configuration requires
   `7...<8`. `packages/hyprland.nix` supplies the release's declared fallback,
   Glaze 7.2.0, through a fixed-output fetch. Hyprland's source is unchanged.
-- The upstream [pixel-city demo](https://github.com/sandwichfarm/hyprlax/tree/v2.2.7/examples/pixel-city)
-  has `blur = 0.0VV` in its TOML. Packaging removes only `VV`. All other settings
-  and the six images remain unchanged. The legacy `.conf` is not used because
+- The original upstream [pixel-city demo](https://github.com/sandwichfarm/hyprlax/tree/v2.2.7/examples/pixel-city)
+  has `blur = 0.0VV` in its TOML. The initial packaging removed `VV`.
+  The current package installs the [five-layer cityscape](wallpaper.md) instead.
+  The legacy `.conf` is not used because
   hyprlax 2.2.7 exits with a migration notice for it. Upstream's `CI=1` build mode
   selects generic CPU flags rather than `-march=native`, so the package is portable
   across x86_64 hosts and the VM.

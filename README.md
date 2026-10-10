@@ -1,7 +1,7 @@
 # kwakOS
 
 NixOS 26.05 for x86_64 Linux: Hyprland 0.56.2, Nostr sign-in, Wofi launcher,
-and an animated pixel-city wallpaper. No Home Manager required.
+and an animated five-layer city wallpaper. No Home Manager required.
 
 ## Try the VM
 
@@ -175,8 +175,8 @@ The repo's `.#physical` uses a hardware template—do not deploy it unchanged.
 Override desktop defaults with `~/.config/hypr/hyprland.lua`.
 Details: [Nostr users](docs/users.md), [layouts](docs/settings.md),
 [Hyprflow](docs/hyprflow.md), [desktop validation](docs/desktop-validation.md).
-Wallpaper artwork: [CraftPix](https://craftpix.net/freebies/) via
-[hyprlax](https://github.com/sandwichfarm/hyprlax/tree/v2.2.7/examples/pixel-city).
+Wallpaper: five-layer cityscape on [hyprlax](https://github.com/sandwichfarm/hyprlax)
+2.2.7 ([layers and proof](docs/wallpaper.md)).
 
 ## Development
 
