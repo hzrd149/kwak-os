@@ -6,13 +6,13 @@
 }:
 hyprland.stdenv.mkDerivation {
   pname = "hyprflow";
-  version = "0-unstable-2026-10-06";
+  version = "0-unstable-2026-10-10";
 
   src = fetchFromGitHub {
     owner = "sandwichfarm";
     repo = "hyprflow";
-    rev = "2607d5de36902f8d770679bb40d72fa4a240c85c";
-    hash = "sha256-0KGzk6jNpVW8oxLPSeUrsiS27m2+X7/yhHSgSYVoZQM=";
+    rev = "b4de91659bb82a9e283fbc6ff542eb83a7ee8bba";
+    hash = "sha256-dJO9kkcim/xHmo4VXAZRH9e0XsVnlpF/frJmA8l0+6c=";
   };
 
   nativeBuildInputs = [ pkg-config ];
