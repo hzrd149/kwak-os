@@ -128,6 +128,18 @@ printf 'rebuild git %s\n' "$(command -v git || echo missing)" >> "$TEST_LOG"
         self.assertIn('          ./kwak-os/hosts/physical { system.stateVersion = "25.11"; }\n', flake)
         self.assertEqual((self.config / "kwakos-local.nix").read_text(), "{ }\n")
 
+    def test_conversion_hostname_defaults_to_kwakos_or_keeps_current(self):
+        self.env["HOSTNAME"] = "nixos"
+        self.assertEqual(self.run_script().returncode, 0)
+        local = self.config / "kwakos-local.nix"
+        self.assertIn('networking.hostName = lib.mkForce "kwakos";', local.read_text())
+        self.assertNotEqual(self.run_script("--hostname", "other").returncode, 0)
+        for path in [local, self.config / "flake.nix"]:
+            path.unlink()
+        self.assertNotEqual(self.run_script("--hostname", "bad.name").returncode, 0)
+        self.assertEqual(self.run_script("--hostname", "nixos").returncode, 0)
+        self.assertNotIn("networking.hostName", local.read_text())
+
     def test_iso_migration_uses_local_hardware_and_original_version(self):
         source = self.config / "kwak-os"
         (source / "hosts/physical").mkdir(parents=True)

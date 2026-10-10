@@ -6,7 +6,7 @@ die() { echo "kwakOS: $*" >&2; exit 1; }
 usage() {
   cat <<'EOF'
 Usage: sudo bash install.sh [--yes] [--switch | --reboot] [--admin-user USER]
-                            [--flake /absolute/path#HOST]
+                            [--hostname NAME] [--flake /absolute/path#HOST]
 
 Without --flake, manage /etc/nixos#kwakos, converting a conventional NixOS
 configuration or an ISO-installed kwakOS system on the first run.
@@ -17,6 +17,8 @@ kwakOS. Only that input is updated; your other dependency pins are preserved.
 --switch           Activate now instead of preparing the next boot.
 --reboot           Reboot into the new system without asking.
 --admin-user USER  Existing local administrator (defaults to the sudo caller).
+--hostname NAME    Hostname to set when converting (asked, or kwakos with --yes);
+                   pass the current hostname to keep it.
 --flake PATH#HOST  Update an existing custom flake, without rewriting it.
 --help             Show this help.
 EOF
@@ -26,15 +28,20 @@ yes=false
 action=boot
 reboot=false
 admin=${SUDO_USER:-}
+hostname=
 target=
 while (($#)); do
   case "$1" in
     --yes) yes=true ;;
     --switch) action=switch ;;
     --reboot) reboot=true ;;
-    --admin-user|--flake)
+    --admin-user|--hostname|--flake)
       (($# >= 2)) || die "$1 needs a value"
-      if [[ $1 == --admin-user ]]; then admin=$2; else target=$2; fi
+      case "$1" in
+        --admin-user) admin=$2 ;;
+        --hostname) hostname=$2 ;;
+        *) target=$2 ;;
+      esac
       shift ;;
     --help|-h) usage; exit 0 ;;
     *) die "Unknown option: $1" ;;
@@ -81,7 +88,30 @@ fi
 flake="path:$directory"
 host=${target##*#}
 
+converting=false
+if $managed && [[ ! -e $directory/flake.nix ]]; then
+  converting=true
+  current_hostname=${HOSTNAME:-nixos}
+  if [[ -z $hostname ]] && ! $yes; then
+    read -r -p "Keep the current hostname \"$current_hostname\"? [y/N] " reply </dev/tty ||
+      die "No terminal; use --yes to confirm."
+    if [[ $reply == y || $reply == Y ]]; then
+      hostname=$current_hostname
+    else
+      read -r -p 'New hostname [kwakos]: ' hostname </dev/tty || die "No terminal; use --yes to confirm."
+    fi
+  fi
+  hostname=${hostname:-kwakos}
+  [[ $hostname =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$ ]] ||
+    die "Invalid hostname: use letters, digits, and inner hyphens (at most 63 characters)."
+elif [[ -n $hostname ]]; then
+  die "--hostname applies only when converting; edit networking.hostName instead."
+fi
+
 echo "kwakOS will back up $directory, update kwakOS, and run nixos-rebuild $action."
+if $converting; then
+  echo "The hostname will be $hostname."
+fi
 echo "Conversion replaces the login screen with greetd and audio with PipeWire."
 echo "Hardware, bootloader, accounts, and the original state version are retained."
 if ! $yes; then
@@ -118,7 +148,7 @@ write_flake() {
 EOF
 }
 
-if $managed && [[ ! -e $directory/flake.nix ]]; then
+if $converting; then
   [[ ! -e $directory/kwakos-local.nix ]] || die "kwakos-local.nix already exists; review it before converting."
   if $legacy; then
     # The ISO copy stays intact; reuse its machine-local modules, not its old OS.
@@ -130,11 +160,16 @@ if $managed && [[ ! -e $directory/flake.nix ]]; then
     machine_module=./configuration.nix
     admin_setting="kwak.adminUser = \"$admin\";"
   fi
+  hostname_setting=
+  if [[ $hostname != "$current_hostname" ]]; then
+    hostname_setting="networking.hostName = lib.mkForce \"$hostname\";"
+  fi
   write_flake "$machine_module"
   cat > "$directory/kwakos-local.nix" <<EOF
 # Machine-local overrides. Keep configuration.nix and hardware settings intact.
 { lib, ... }: {
   $admin_setting
+  $hostname_setting
   services.displayManager.sddm.enable = lib.mkForce false;
   services.displayManager.gdm.enable = lib.mkForce false;
   services.xserver.displayManager.lightdm.enable = lib.mkForce false;

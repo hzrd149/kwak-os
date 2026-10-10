@@ -62,6 +62,8 @@ For a conventional NixOS installation, the script creates `/etc/nixos/flake.nix`
 and `kwakos-local.nix`, retaining `configuration.nix`, hardware, bootloader,
 networking, credentials, and `system.stateVersion`. The sudo caller becomes
 `kwak.adminUser`; use `--admin-user USER` when running directly as root.
+It asks whether to keep the current hostname or set a new one (default
+`kwakos`); with `--yes`, pass `--hostname NAME`, or `kwakos` is used.
 The local overrides disable standard competing display managers, autologin,
 and PulseAudio in favor of greetd and PipeWire. Review unusual desktop or
 Home Manager configurations yourself; arbitrary custom configurations are not
