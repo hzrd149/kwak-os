@@ -5,7 +5,7 @@ set -euo pipefail
 die() { echo "kwakOS: $*" >&2; exit 1; }
 usage() {
   cat <<'EOF'
-Usage: sudo bash install.sh [--yes] [--switch] [--admin-user USER]
+Usage: sudo bash install.sh [--yes] [--switch | --reboot] [--admin-user USER]
                             [--flake /absolute/path#HOST]
 
 Without --flake, manage /etc/nixos#kwakos, converting a conventional NixOS
@@ -15,6 +15,7 @@ kwakOS. Only that input is updated; your other dependency pins are preserved.
 
 --yes              Skip confirmation (otherwise read from /dev/tty).
 --switch           Activate now instead of preparing the next boot.
+--reboot           Reboot into the new system without asking.
 --admin-user USER  Existing local administrator (defaults to the sudo caller).
 --flake PATH#HOST  Update an existing custom flake, without rewriting it.
 --help             Show this help.
@@ -23,12 +24,14 @@ EOF
 
 yes=false
 action=boot
+reboot=false
 admin=${SUDO_USER:-}
 target=
 while (($#)); do
   case "$1" in
     --yes) yes=true ;;
     --switch) action=switch ;;
+    --reboot) reboot=true ;;
     --admin-user|--flake)
       (($# >= 2)) || die "$1 needs a value"
       if [[ $1 == --admin-user ]]; then admin=$2; else target=$2; fi
@@ -39,10 +42,11 @@ while (($#)); do
   shift
 done
 
+[[ $action == boot ]] || ! $reboot || die "--reboot and --switch cannot be combined."
 [[ $EUID == 0 ]] || die "Run this script with sudo bash."
 [[ -e /etc/NIXOS ]] || die "This script requires an installed NixOS or kwakOS system."
 [[ $(uname -m) == x86_64 ]] || die "kwakOS currently supports x86_64 only."
-for command in nix nixos-rebuild cp mktemp getent; do
+for command in nix nixos-rebuild cp mktemp getent sed; do
   command -v "$command" >/dev/null || die "Required command not found: $command"
 done
 nix_cmd=(nix --extra-experimental-features 'nix-command flakes')
@@ -91,6 +95,29 @@ cp -a "$directory" "$backup/nixos"
 echo "Configuration backup: $backup/nixos"
 trap 'echo "kwakOS failed. Configuration backup: $backup/nixos. No automatic restore was attempted; inspect the error before retrying." >&2' ERR
 
+# Plain `nixos-rebuild` looks up the hostname, so expose that alongside kwakos.
+write_flake() {
+  cat > "$directory/flake.nix" <<EOF
+# Managed by kwakOS install.sh
+{
+  inputs.kwakOS.url = "github:hzrd149/kwak-os";
+  outputs = { kwakOS, ... }:
+    let
+      system = kwakOS.inputs.nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          kwakOS.nixosModules.default
+          $1
+          ./kwakos-local.nix
+        ];
+      };
+    in {
+      nixosConfigurations = { \${system.config.networking.hostName} = system; } // { kwakos = system; };
+    };
+}
+EOF
+}
+
 if $managed && [[ ! -e $directory/flake.nix ]]; then
   [[ ! -e $directory/kwakos-local.nix ]] || die "kwakos-local.nix already exists; review it before converting."
   if $legacy; then
@@ -103,22 +130,7 @@ if $managed && [[ ! -e $directory/flake.nix ]]; then
     machine_module=./configuration.nix
     admin_setting="kwak.adminUser = \"$admin\";"
   fi
-  cat > "$directory/flake.nix" <<EOF
-# Managed by kwakOS install.sh
-{
-  inputs.kwakOS.url = "github:hzrd149/kwak-os";
-  outputs = { kwakOS, ... }: {
-    nixosConfigurations.kwakos = kwakOS.inputs.nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules = [
-        kwakOS.nixosModules.default
-        $machine_module
-        ./kwakos-local.nix
-      ];
-    };
-  };
-}
-EOF
+  write_flake "$machine_module"
   cat > "$directory/kwakos-local.nix" <<EOF
 # Machine-local overrides. Keep configuration.nix and hardware settings intact.
 { lib, ... }: {
@@ -133,6 +145,11 @@ EOF
   services.pipewire.pulse.enable = lib.mkForce true;
 }
 EOF
+elif $managed && ! grep -q 'networking.hostName' "$directory/flake.nix"; then
+  # Upgrade flakes written by earlier versions, keeping their machine module.
+  machine_module=$(sed -n '/kwakOS.nixosModules.default/{n;s/^ *//;p;q}' "$directory/flake.nix")
+  [[ -n $machine_module ]] || die "Cannot upgrade $directory/flake.nix; restore it from the backup or edit it."
+  write_flake "$machine_module"
 fi
 
 # Check input names through Nix, not text matching or editing custom Nix code.
@@ -154,7 +171,17 @@ fi
 "${inhibit[@]}" nixos-rebuild "$action" --flake "$flake#$host" --no-update-lock-file
 trap - ERR
 if [[ $action == boot ]]; then
-  echo "kwakOS is ready. Reboot when convenient to start the new system."
+  echo "kwakOS is ready for the next boot."
+  if ! $reboot && ! $yes; then
+    read -r -p 'Reboot now to start it? [y/N] ' reply </dev/tty || reply=
+    [[ $reply == y || $reply == Y ]] && reboot=true
+  fi
+  if $reboot; then
+    echo "Rebooting into kwakOS."
+    systemctl reboot
+    exit 0
+  fi
+  echo "Reboot when convenient to start the new system."
 else
   echo "kwakOS activated. A reboot is recommended for a complete desktop update."
 fi

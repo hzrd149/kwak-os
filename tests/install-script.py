@@ -55,6 +55,7 @@ printf 'inhibit %s\n' "$*" >> "$TEST_LOG"
 while [[ "$1" == --* ]]; do shift; done
 exec "$@"
 ''')
+        self.command("systemctl", 'printf "systemctl %s\\n" "$*" >> "$TEST_LOG"')
         self.command("nixos-rebuild", '''
 printf 'rebuild %s\n' "$*" >> "$TEST_LOG"
 printf 'rebuild git %s\n' "$(command -v git || echo missing)" >> "$TEST_LOG"
@@ -93,6 +94,39 @@ printf 'rebuild git %s\n' "$(command -v git || echo missing)" >> "$TEST_LOG"
         self.assertIn("rebuild switch --flake path:", log)
         self.assertIn("--no-update-lock-file", log)
         self.assertIn("inhibit --what=sleep:idle", log)
+        self.assertNotIn("systemctl reboot", log)
+        self.assertIn("nixosConfigurations = { ${system.config.networking.hostName} = system; }", flake)
+
+    def test_reboot_flag_reboots_after_boot_build(self):
+        result = self.run_script("--reboot")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(self.log.read_text().endswith("systemctl reboot\n"))
+        self.assertNotEqual(self.run_script("--reboot", "--switch").returncode, 0)
+
+    def test_old_managed_flake_gains_hostname_configuration(self):
+        old = """# Managed by kwakOS install.sh
+{
+  inputs.kwakOS.url = "github:hzrd149/kwak-os";
+  outputs = { kwakOS, ... }: {
+    nixosConfigurations.kwakos = kwakOS.inputs.nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        kwakOS.nixosModules.default
+        ./kwak-os/hosts/physical { system.stateVersion = "25.11"; }
+        ./kwakos-local.nix
+      ];
+    };
+  };
+}
+"""
+        (self.config / "flake.nix").write_text(old)
+        (self.config / "kwakos-local.nix").write_text("{ }\n")
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        flake = (self.config / "flake.nix").read_text()
+        self.assertIn("system.config.networking.hostName", flake)
+        self.assertIn('          ./kwak-os/hosts/physical { system.stateVersion = "25.11"; }\n', flake)
+        self.assertEqual((self.config / "kwakos-local.nix").read_text(), "{ }\n")
 
     def test_iso_migration_uses_local_hardware_and_original_version(self):
         source = self.config / "kwak-os"
@@ -110,7 +144,7 @@ printf 'rebuild git %s\n' "$(command -v git || echo missing)" >> "$TEST_LOG"
         # Hide host git by exposing only the tools the script and fakes need.
         tools = self.root / "tools"
         tools.mkdir()
-        for name in ["bash", "cp", "mktemp", "grep", "mkdir", "cat", "chmod"]:
+        for name in ["bash", "cp", "mktemp", "grep", "mkdir", "cat", "chmod", "sed"]:
             (tools / name).symlink_to(shutil.which(name))
         self.env["PATH"] = f"{self.bin}:{tools}"
         result = self.run_script()

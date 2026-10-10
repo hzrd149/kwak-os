@@ -47,7 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/hzrd149/kwak-os/master/install.sh |
 
 Run the same command again to update. Internet access is required. The script
 asks for confirmation, backs up `/etc/nixos` under `/var/backups/kwakos.…`,
-and builds the new system for the **next boot**. Reboot when convenient.
+and builds the new system for the **next boot**, then offers to reboot.
 It does not partition disks or change your account password.
 
 As with any downloaded root script, inspect it first if you prefer:
@@ -76,8 +76,8 @@ not the old `/etc/nixos/kwak-os#physical` target.
 
 Subsequent runs update only the `kwakOS` input, using upstream's pinned
 dependencies; machine-local files are not overwritten. Add `--switch` to
-activate immediately (this may end the desktop session), or `--yes` to skip
-confirmation:
+activate immediately (this may end the desktop session), `--reboot` to reboot
+into the new system without asking, or `--yes` to skip confirmation:
 
 ```sh
 sudo bash install.sh --switch
