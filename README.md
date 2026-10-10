@@ -189,3 +189,9 @@ nix flake check --no-build  # Evaluate configurations
 nix flake check             # Build and run checks
 nix fmt
 ```
+
+Update the kwakore runtime to the latest commit, then commit the lockfile:
+
+```sh
+nix flake update kwakore
+```
