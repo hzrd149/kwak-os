@@ -598,6 +598,23 @@ GUEST = {"username": "nab12cd34ef", "name": "nab12cd34ef", "temporary": True}
 
 
 class SessionAppTests(unittest.IsolatedAsyncioTestCase):
+    async def test_pending_library_blocks_logout_until_explicit_exit(self):
+        class PendingLibrary:
+            def snapshot(self):
+                return {"pending": [{"address": "game"}]}
+            sync = snapshot
+        self.session = FakeSession(GUEST)
+        app = greeter.SessionApp(self.session, self.session.run, page="logout",
+                                 logout=["uwsm", "stop"], library=PendingLibrary())
+        async with app.run_test(size=(72, 30)) as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.click("#logout-go")
+            await app.workers.wait_for_complete()
+            self.assertEqual(app.page, "sync")
+            self.assertEqual(self.session.commands, [])
+            await pilot.click("#sync-exit")
+        self.assertEqual(self.session.commands, [["uwsm", "stop"]])
+
     def app(self, info, page="menu"):
         self.session = FakeSession(info)
         return greeter.SessionApp(self.session, self.session.run, page=page,

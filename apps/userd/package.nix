@@ -13,12 +13,16 @@
 let
   # pynacl for NIP-49; coincurve and cryptography to sign for kwakore;
   # python-pam to check kept accounts' Unix passwords.
-  python = python3.withPackages (ps: [
+  pythonPackages = ps: [
     ps.pynacl
     ps.coincurve
     ps.cryptography
     ps.python-pam
-  ]);
+    ps.websocket-client
+    ps.pillow
+  ];
+  python = python3.withPackages pythonPackages;
+  testPython = python3.withPackages (ps: pythonPackages ps ++ [ ps.websockets ]);
 in
 stdenvNoCC.mkDerivation {
   pname = "kwak-userd";
@@ -26,7 +30,10 @@ stdenvNoCC.mkDerivation {
   src = ./.;
 
   nativeBuildInputs = [ makeWrapper ];
-  nativeCheckInputs = [ python ];
+  nativeCheckInputs = [
+    testPython
+    nak
+  ];
   dontBuild = true;
   doCheck = true;
 

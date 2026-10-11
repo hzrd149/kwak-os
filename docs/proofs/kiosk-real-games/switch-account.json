@@ -1,0 +1,25 @@
+{
+  "environment": "owned disposable VM; actual temporary identity, greetd PAM and WebKit games",
+  "username": "n4f355bdcb7",
+  "uid": 30000,
+  "switch_operation": "switch_account",
+  "resumed_probe_run": false,
+  "checks": [
+    "real greetd IPC and PAM token create managed temporary graphical session",
+    "automatic library startup fetches NIP78 list and downloads both saved games",
+    "two real sandboxed WebKit games report independent advancing storage heartbeats",
+    "switch_account sign-in transition freezes actual game descendants and stops heartbeats and CPU time",
+    "same card resumes original game processes and in-memory instances",
+    "explicit signout deletes temporary account, home and all UID processes"
+  ],
+  "limitations": [
+    "Card injection uses the card-service UID and real backend handler; physical HID reader not tested",
+    "Virtual GPU and local TLS relay do not certify physical kiosk hardware"
+  ],
+  "result": "PASS",
+  "date": "2026-10-11",
+  "backend": "/nix/store/6rcfxhzhn4xlxadz6qlqjwip0x9vrbkm-kwak-userd-0.1.0",
+  "probe_sha256": "a42dfd03d63653fbeb88b27e87f8dfaa6df3e54a286995404bf9eb860b4d8b4c",
+  "freshness": "New account and clean home after the first identity was deleted; no startup-probe recovery on this run.",
+  "authorization_scope": "switch_account requested from a transient service beneath the actual user manager, matching UWSM apps without session.scope ancestry."
+}

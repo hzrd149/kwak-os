@@ -2,8 +2,11 @@
 """The desktop's window tiling mode and the terminal Settings app."""
 
 import asyncio
+import pwd
+import uuid
 import json
 import os
+import re
 from pathlib import Path
 import socket
 import subprocess
@@ -178,6 +181,126 @@ THEME = Theme(
 )
 
 
+class AudioController:
+    def __init__(self, run=subprocess.run):
+        self.run = run
+
+    def request(self, *args):
+        try:
+            result = self.run(["wpctl", *args], capture_output=True, text=True,
+                              timeout=5, check=False, env={**os.environ, "LC_ALL": "C"})
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise SettingsError("Audio is unavailable. Check the output device and retry.") from error
+        if result.returncode:
+            raise SettingsError("Audio is unavailable. Check the output device and retry.")
+        return result.stdout
+
+    def volume(self):
+        output = self.request("get-volume", "@DEFAULT_AUDIO_SINK@")
+        match = re.fullmatch(r"Volume: ([0-9]+(?:\.[0-9]+)?)(?: (\[MUTED\]))?\s*", output)
+        if not match:
+            raise SettingsError("Could not read audio volume. Please retry.")
+        return round(float(match[1]) * 100), bool(match[2])
+
+    def change(self, action):
+        if action == "mute":
+            self.request("set-mute", "@DEFAULT_AUDIO_SINK@", "toggle")
+        elif action in ("up", "down"):
+            self.request("set-volume", "@DEFAULT_AUDIO_SINK@",
+                         "5%+" if action == "up" else "5%-", "--limit", "1.0")
+        else:
+            raise SettingsError("Unsupported audio action.")
+        return self.volume()
+
+
+class NetworkController:
+    """User-scoped, nonpersistent Wi-Fi profiles; secrets never enter argv."""
+
+    def __init__(self, run=subprocess.run):
+        self.run = run
+
+    def request(self, *args):
+        try:
+            result = self.run(["nmcli", "--wait", "25", "--colors", "no", *args],
+                              capture_output=True, text=True, timeout=30, check=False,
+                              env={**os.environ, "LC_ALL": "C"})
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise SettingsError("Network request failed. Check the adapter and retry.") from error
+        if result.returncode:
+            # Never display nmcli output: it can contain credentials.
+            raise SettingsError("Network request failed. Check the password, signal and access permissions, then retry.")
+        return result.stdout
+
+    @staticmethod
+    def rows(output):
+        # nmcli terse escapes both colons and backslashes, including in SSIDs.
+        rows = []
+        for line in output.splitlines():
+            fields, field, escaped = [], "", False
+            for char in line:
+                if escaped:
+                    field += char
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == ":":
+                    fields.append(field)
+                    field = ""
+                else:
+                    field += char
+            fields.append(field)
+            rows.append(fields)
+        return rows
+
+    def status(self):
+        devices = self.rows(self.request("-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device", "status"))
+        return "\n".join(f"{row[0]}: {row[2]}" + (f" · {row[3]}" if row[3] not in ("", "--") else "")
+                         for row in devices if len(row) == 4 and row[1] != "loopback") or "No network adapters found."
+
+    def scan(self):
+        rows = self.rows(self.request("-t", "-f", "SSID,SECURITY,SIGNAL,DEVICE", "device", "wifi", "list", "--rescan", "yes"))
+        found = {}
+        for row in rows:
+            if len(row) == 4 and row[0] and row[2].isdigit():
+                key = (row[0], row[1], row[3])
+                found[key] = max(int(row[2]), found.get(key, 0))
+        return [dict(ssid=key[0], security=key[1], device=key[2], signal=signal)
+                for key, signal in sorted(found.items(), key=lambda pair: -pair[1])]
+
+    def connect(self, network, password=""):
+        security = network["security"]
+        if security not in ("", "--") and not set(security.split()).issubset({"WPA", "WPA1", "WPA2", "WPA3"}):
+            raise SettingsError("This network needs administrator setup. Choose an open or personal WPA network.")
+        protected = security not in ("", "--")
+        if protected and not password:
+            raise SettingsError("Enter the Wi-Fi password first.")
+        if "\n" in password or "\r" in password or "\x00" in password:
+            raise SettingsError("The password contains unsupported characters.")
+        identity = str(uuid.uuid4())
+        args = ["connection", "add", "save", "no", "type", "wifi", "ifname", network["device"],
+                "con-name", "kwak-wifi-" + identity, "connection.uuid", identity,
+                "ssid", network["ssid"], "connection.permissions", "user:" + pwd.getpwuid(os.getuid()).pw_name,
+                "connection.autoconnect", "no"]
+        if protected:
+            args += ["wifi-sec.key-mgmt", "sae" if security == "WPA3" else "wpa-psk",
+                     "wifi-sec.psk-flags", "2"]
+        try:
+            self.request(*args)
+            with tempfile.TemporaryDirectory(prefix="kwak-wifi-", dir=os.environ.get("XDG_RUNTIME_DIR")) as directory:
+                credentials = Path(directory) / "password"
+                with open(credentials, "w", opener=lambda path, flags: os.open(path, flags, 0o600)) as stream:
+                    if protected:
+                        stream.write("802-11-wireless-security.psk:" + password + "\n")
+                self.request("connection", "up", "uuid", identity, "passwd-file", str(credentials))
+        except (SettingsError, OSError):
+            try:
+                self.request("connection", "delete", "uuid", identity)
+            except SettingsError:
+                pass
+            raise
+        return self.status()
+
+
 class SettingsApp(App):
     """Choose the window tiling mode; a mode is applied as soon as it is chosen."""
 
@@ -202,20 +325,41 @@ class SettingsApp(App):
     TabPane { padding: 1 0; height: auto; }
     Input { margin-bottom: 1; }
     TextArea { height: 9; margin-bottom: 1; }
+    #audio-buttons, #network-buttons { height: 3; }
+    #networks { max-height: 8; }
     """
     ENABLE_COMMAND_PALETTE = False
     BINDINGS = [Binding("escape,q", "quit", "Close")]
 
-    def __init__(self, controller=None):
+    def __init__(self, controller=None, audio=None, network=None):
         super().__init__()
         self.controller = controller or ModeController()
         self.current = None
         self.account = None
+        self.audio = audio or AudioController()
+        self.network = network or NetworkController()
+        self.networks = []
 
     def compose(self):
         with VerticalScroll(id="panel") as panel:
             panel.border_title = "SETTINGS"
             with TabbedContent(initial="window"):
+                with TabPane("Sound", id="sound"):
+                    yield Static("Game volume", classes="title")
+                    yield Static("Reading volume…", id="volume", markup=False)
+                    with Horizontal(id="audio-buttons"):
+                        yield Button("− 5%", id="audio-down")
+                        yield Button("+ 5%", id="audio-up")
+                        yield Button("Mute", id="audio-mute")
+                        yield Button("Refresh", id="audio-refresh")
+                with TabPane("Network", id="network"):
+                    yield Static("Reading connections…", id="network-status", markup=False)
+                    yield Static("Wi-Fi changes affect this kiosk. Passwords are not saved.", classes="hint")
+                    yield OptionList(id="networks")
+                    yield Input(placeholder="Wi-Fi password", password=True, id="wifi-password")
+                    with Horizontal(id="network-buttons"):
+                        yield Button("Scan", id="network-scan")
+                        yield Button("Connect", id="network-connect", disabled=True)
                 with TabPane("Window", id="window"):
                     yield Static("Window tiling mode", classes="title")
                     yield Static("Choose how your windows use the workspace.", classes="hint")
@@ -242,8 +386,35 @@ class SettingsApp(App):
     def on_mount(self):
         self.register_theme(THEME)
         self.theme = "kwak"
+        self.update_tab_controls()
         self.load()
         self.load_account()
+        self.update_audio()
+        self.update_network()
+
+    def update_tab_controls(self):
+        active = self.query_one(TabbedContent).active
+        self.query_one("#account-password", Input).display = active in ("profile", "relays", "media_servers")
+        self.query_one("#status", Static).display = active not in ("sound", "network")
+
+    def on_tabbed_content_tab_activated(self, event):
+        self.update_tab_controls()
+
+    @work(exclusive=True, group="audio")
+    async def update_audio(self, action="refresh"):
+        buttons = [self.query_one(f"#audio-{name}", Button) for name in ("down", "up", "mute", "refresh")]
+        for button in buttons:
+            button.disabled = True
+        try:
+            volume, muted = await asyncio.to_thread(self.audio.volume if action == "refresh" else self.audio.change,
+                                                   *(() if action == "refresh" else (action,)))
+            self.query_one("#volume", Static).update(f"Volume {volume}%" + (" · Muted" if muted else ""))
+            self.query_one("#audio-mute", Button).label = "Unmute" if muted else "Mute"
+        except SettingsError as error:
+            self.query_one("#volume", Static).update(str(error))
+        finally:
+            for button in buttons:
+                button.disabled = False
 
     @work(exclusive=True, group="account-load")
     async def load_account(self):
@@ -290,6 +461,9 @@ class SettingsApp(App):
         self.say("Choose a mode to apply it. Your choice is saved for next time.")
 
     def on_option_list_option_selected(self, event):
+        if event.option_list.id == "networks":
+            self.query_one("#wifi-password", Input).focus()
+            return
         if event.option.id != self.current:
             self.apply(event.option.id)
 
@@ -316,8 +490,45 @@ class SettingsApp(App):
     def on_button_pressed(self, event):
         if event.button.id == "close":
             self.exit()
+        elif event.button.id and event.button.id.startswith("network-"):
+            self.update_network(event.button.id.removeprefix("network-"))
+        elif event.button.id and event.button.id.startswith("audio-"):
+            self.update_audio(event.button.id.removeprefix("audio-"))
         elif event.button.id and event.button.id.startswith("save-"):
             self.save_account(event.button.id.removeprefix("save-"))
+
+    @work(exclusive=True, group="network")
+    async def update_network(self, action="status"):
+        connect = self.query_one("#network-connect", Button)
+        scan = self.query_one("#network-scan", Button)
+        choices = self.query_one("#networks", OptionList)
+        field = self.query_one("#wifi-password", Input)
+        selection = choices.highlighted
+        password = field.value
+        field.value = ""
+        connect.disabled = scan.disabled = choices.disabled = True
+        status = self.query_one("#network-status", Static)
+        status.update("Connecting…" if action == "connect" else "Checking network…")
+        try:
+            if action == "connect":
+                if selection is None or selection >= len(self.networks):
+                    raise SettingsError("Select a network first.")
+                message = await asyncio.to_thread(self.network.connect, self.networks[selection], password)
+            else:
+                message = await asyncio.to_thread(self.network.status)
+                if action == "scan":
+                    self.networks = await asyncio.to_thread(self.network.scan)
+                    choices.clear_options()
+                    for index, network in enumerate(self.networks):
+                        choices.add_option(Option(Text(f"{network['ssid']} · {network['signal']}% · {network['security'] or 'Open'}"), id=str(index)))
+                    if not self.networks:
+                        message += "\nNo visible Wi-Fi networks. Check that Wi-Fi is enabled."
+            status.update(message)
+        except (SettingsError, OSError) as error:
+            status.update(str(error) if isinstance(error, SettingsError) else "Network request failed. Please retry.")
+        finally:
+            scan.disabled = choices.disabled = False
+            connect.disabled = not bool(self.networks)
 
     @work(exclusive=True, group="account-save")
     async def save_account(self, section):

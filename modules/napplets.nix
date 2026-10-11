@@ -41,6 +41,11 @@ in
         socket = "/run/kwak-userd.sock";
       };
     };
+    # Napplet windows inherit the daemon's environment. WebKitGTK's DMABUF
+    # renderer trips "Error 71 (Protocol error) dispatching to Wayland
+    # display" under Hyprland on some GPUs (seen on nouveau), and GTK then
+    # exits, so the window flashes and closes. The fallback renderer works.
+    systemd.user.services.kwakore.environment.WEBKIT_DISABLE_DMABUF_RENDERER = "1";
     # makeWrapper execs this; it is what /proc/PID/exe shows for the daemon.
     kwak.nostrUsers.signerClients = [ "${package}/bin/.kwakore-wrapped" ];
     kwak.nostrUsers.setupHooks = lib.optionalAttrs (defaults != [ ]) {

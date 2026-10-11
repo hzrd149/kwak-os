@@ -36,6 +36,71 @@ class Desktop:
         return subprocess.CompletedProcess(args, 0, output + "\n", "")
 
 
+class AudioControllerTests(unittest.TestCase):
+    def test_volume_mute_and_capped_increment(self):
+        calls = []
+        def run(args, **kwargs):
+            calls.append(args)
+            self.assertEqual(kwargs["env"]["LC_ALL"], "C")
+            return subprocess.CompletedProcess(args, 0, "Volume: 0.55 [MUTED]\n", "")
+        audio = settings.AudioController(run)
+        self.assertEqual(audio.change("up"), (55, True))
+        self.assertEqual(calls[0], ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%+", "--limit", "1.0"])
+        audio.change("mute")
+        self.assertIn(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"], calls)
+
+    def test_missing_device_reports_failure_without_echoing_output(self):
+        audio = settings.AudioController(lambda *a, **k: subprocess.CompletedProcess([], 1, "", "private"))
+        with self.assertRaisesRegex(settings.SettingsError, "retry"):
+            audio.volume()
+
+
+class NetworkControllerTests(unittest.TestCase):
+    def test_scan_escapes_ssids_and_deduplicates(self):
+        controller = settings.NetworkController(lambda args, **kwargs: subprocess.CompletedProcess(
+            args, 0, "Game\\:Room:WPA2:40:wlan0\nGame\\:Room:WPA2:80:wlan0\n:WPA2:90:wlan0\n", ""))
+        self.assertEqual(controller.scan(), [dict(ssid="Game:Room", security="WPA2", signal=80, device="wlan0")])
+
+    def test_private_unsaved_connection_keeps_password_out_of_arguments(self):
+        calls, paths = [], []
+        def run(args, **kwargs):
+            calls.append(args)
+            self.assertNotIn("very-secret-password", str(args))
+            if "passwd-file" in args:
+                path = Path(args[args.index("passwd-file") + 1])
+                paths.append(path)
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(path.read_text(), "802-11-wireless-security.psk:very-secret-password\n")
+            return subprocess.CompletedProcess(args, 0, "wlan0:wifi:connected:Game\n", "")
+        controller = settings.NetworkController(run)
+        controller.connect(dict(ssid="Game", device="wlan0", security="WPA2"), "very-secret-password")
+        self.assertIn("save", calls[0])
+        self.assertIn("no", calls[0])
+        self.assertIn("connection.permissions", calls[0])
+        self.assertIn("wifi-sec.psk-flags", calls[0])
+        self.assertTrue(paths)
+        self.assertFalse(paths[0].exists())
+
+    def test_failed_activation_cleans_profile_and_redacts_output(self):
+        calls = []
+        def run(args, **kwargs):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 1 if "up" in args else 0, "secret", "secret")
+        controller = settings.NetworkController(run)
+        with self.assertRaises(settings.SettingsError) as error:
+            controller.connect(dict(ssid="Game", device="wlan0", security="WPA2"), "password")
+        self.assertNotIn("secret", str(error.exception))
+        self.assertIn("delete", calls[-1])
+
+    def test_enterprise_and_password_injection_rejected_before_mutation(self):
+        calls = []
+        controller = settings.NetworkController(lambda *args, **kwargs: calls.append(args))
+        for security, password in (("WPA2 802.1X", "secret"), ("WPA2", "bad\nline"), ("WPA2", "")):
+            with self.assertRaises(settings.SettingsError):
+                controller.connect(dict(ssid="Game", device="wlan0", security=security), password)
+        self.assertEqual(calls, [])
+
+
 class ModeControllerTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -169,6 +234,50 @@ class SettingsAppTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertTrue(pilot.app.query_one("#modes").disabled)
             self.assertTrue(pilot.app.query_one("#status").has_class("error"))
+
+
+class NetworkAppTests(unittest.IsolatedAsyncioTestCase):
+    async def test_each_tab_shows_only_relevant_credentials_and_status(self):
+        app = settings.SettingsApp(settings.ModeController(run=Desktop()))
+        async with app.run_test(size=(80, 36)) as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            self.assertFalse(app.query_one("#account-password").display)
+            self.assertTrue(app.query_one("#status").display)
+            tabs = app.query_one(settings.TabbedContent)
+            for tab in ("sound", "network", "profile", "relays", "media_servers", "window"):
+                tabs.active = tab
+                await pilot.pause()
+                self.assertEqual(app.query_one("#account-password").display,
+                                 tab in ("profile", "relays", "media_servers"))
+                self.assertEqual(app.query_one("#status").display, tab not in ("sound", "network"))
+
+    async def test_scan_select_and_connect_clears_password(self):
+        class Network:
+            def status(self):
+                return "Ethernet connected"
+            def scan(self):
+                return [dict(ssid="Game", signal=90, security="WPA2", device="wlan0")]
+            def connect(self, network, password):
+                self.connected = (network, password)
+                return "Wi-Fi connected"
+        network = Network()
+        app = settings.SettingsApp(settings.ModeController(run=Desktop()), network=network)
+        async with app.run_test(size=(80, 36)) as pilot:
+            await app.workers.wait_for_complete()
+            app.query_one(settings.TabbedContent).active = "network"
+            app.update_network("scan")
+            await app.workers.wait_for_complete()
+            app.query_one("#networks").highlighted = 0
+            app.query_one("#networks").focus()
+            await pilot.press("enter")
+            self.assertEqual(app.focused.id, "wifi-password")
+            app.query_one("#wifi-password").value = "private-password"
+            app.update_network("connect")
+            await app.workers.wait_for_complete()
+            self.assertEqual(network.connected[1], "private-password")
+            self.assertEqual(app.query_one("#wifi-password").value, "")
+            self.assertIn("Wi-Fi connected", str(app.query_one("#network-status").render()))
 
 
 class AccountFormTests(unittest.TestCase):

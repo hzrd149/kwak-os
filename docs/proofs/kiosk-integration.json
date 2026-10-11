@@ -1,0 +1,35 @@
+{
+  "status": "passed",
+  "date": "2026-10-11",
+  "app_tests": {
+    "userd": 115,
+    "greeter": 46,
+    "kiosk": 10
+  },
+  "nixos_vm": {
+    "driver": "/nix/store/956g1zfydy0iklpydn4qi9dsi3ibmf30-nixos-test-driver-kwak-userd",
+    "runner": "built test driver executed with host-user KVM access",
+    "subtests": 11,
+    "exit_code": 0,
+    "test_script_sha256": "958b002f8dd85d1c4cb1a959eeaef8ba8431ef0bd684ce05f99608edb8fade44",
+    "checks": [
+      "relay library add/remove",
+      "library reload after daemon restart",
+      "local signer publication",
+      "bunker signer publication",
+      "user-service freeze and thaw",
+      "user manager responsive while games frozen",
+      "existing identity lifecycle and temporary-account cleanup"
+    ]
+  },
+  "configuration_checks": [
+    "nix flake check --no-build",
+    "Hyprland verify-config",
+    "Lua workspace tests"
+  ],
+  "not_verified": [
+    "graphical overlay focus/opacity and physical Windows key input",
+    "real-game idle pause and resume on target GPU",
+    "remote bunker with a relay requiring NIP-42 AUTH"
+  ]
+}

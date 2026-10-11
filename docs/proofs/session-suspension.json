@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-11",
+  "unit_tests": {
+    "command": "python3 -m unittest discover -s apps/userd/tests",
+    "result": "PASS",
+    "tests": 119,
+    "scope": "existing suite plus four suspension edge-case regressions"
+  },
+  "vm": {
+    "driver": "/nix/store/xw8hz90pfh5p2y6z5vckfq8qzvimfd3k-nixos-test-driver-kwak-userd",
+    "test_script_sha256": "1579861b1bda6cf2405b6323af800da60e583af7fbcdc74f236e8733c64e4d5f",
+    "result": "PASS",
+    "exit_code": 0,
+    "subtests": 11,
+    "duration_seconds": 67.1,
+    "artifacts": "/tmp/kwak-session-descendants.log"
+  },
+  "verified": [
+    "inactive runtime is not started by suspension",
+    "freezer command failure and timeout do not prevent opening sign-in",
+    "thaw failure does not prevent desktop activation",
+    "swiping current card thaws without freezing again",
+    "systemd service freeze suspends both parent and spawned child counters",
+    "cgroup.events reports frozen 1; both counters remain unchanged for one second",
+    "user-manager commands remain responsive while runtime cgroup is frozen",
+    "both counters resume increasing after thaw"
+  ],
+  "runtime_source": {
+    "revision": "36a8e267b05b7e457b450604bdc3f1cdf1723416",
+    "file": "backend/linuxhost/host_linux.go",
+    "finding": "napplet exec.Command uses Setpgid; no separate systemd scope in this launcher, so cgroup ancestry is inherited"
+  },
+  "limitations": [
+    "VM uses counter stand-ins rather than a real WebKit game",
+    "real-game graphics, audio, GPU activity and long-idle recovery remain unverified",
+    "freeze/thaw failures are logged and desktop switching continues; resource suspension and game resume are not guaranteed after a systemd failure"
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "environment": "owned disposable VM; actual temporary identity, greetd PAM and WebKit games",
+  "username": "n4f355bdcb7",
+  "uid": 30000,
+  "checks": [
+    "real greetd IPC and PAM token create managed temporary graphical session",
+    "automatic library startup fetches NIP78 list and downloads both saved games",
+    "two real sandboxed WebKit games report independent advancing storage heartbeats",
+    "idle sign-in transition freezes actual game descendants and stops heartbeats",
+    "same card resumes original game processes and in-memory instances",
+    "explicit signout deletes temporary account, home and all UID processes"
+  ],
+  "limitations": [
+    "Card injection uses the card-service UID and real backend handler; physical HID reader not tested",
+    "Virtual GPU and local TLS relay do not certify physical kiosk hardware"
+  ],
+  "result": "PASS",
+  "date": "2026-10-11",
+  "cpu_accounting": "cgroup cpu.stat unchanged during two-second freeze",
+  "switch_operation": "idle_session",
+  "startup_probe_recovery": "Original greetd/PAM startup succeeded; transient hyprctl startup JSON and renamed runtime process probes corrected without replacing session."
+}

@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-11",
+  "checks": [
+    "clean configuration and automatic Hyprflow load",
+    "lone Windows key opens floating overlay on the game's workspace",
+    "overlay background blends with the underlying game window",
+    "Escape dismisses overlay and restores game focus",
+    "Super+Q opens terminal without triggering overlay on release",
+    "Super+Tab, Left and Enter switch back to the game through Hyprflow",
+    "packaged Settings opens and closes with keyboard"
+  ],
+  "environment": "disposable admin session; real packaged applications",
+  "system": "/nix/store/xnzqy20rkvdjw841ajppybncl2dvpfvm-nixos-system-kwakos-vm-26.05.20261004.0d9e9b8",
+  "overlay": "/nix/store/lwc9a6102y9kbkp2b92mwvkr5qsm1a3z-kwak-kiosk-0.1.0/bin/kwak-overlay",
+  "settings": "/nix/store/hwfq682k3761zhbcmxlqdyy3bjxqpvgx-kwak-settings-0.1.0/bin/kwak-settings",
+  "config_sha256": "23d65e17a744b21ffa069f2b167f09ce505b5ac2554e5447a8b5a9e10c8832ab",
+  "limitations": [
+    "Game window is a terminal fixture, not a WebKit game",
+    "Admin session has no Nostr library; account error in overlay is expected",
+    "Virtual GPU and keyboard input do not certify physical hardware"
+  ]
+}

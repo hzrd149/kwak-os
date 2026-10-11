@@ -3,6 +3,8 @@
   stdenvNoCC,
   python3,
   kitty,
+  wireplumber,
+  networkmanager,
   makeWrapper,
   makeDesktopItem,
   # null uses the hyprctl of the running desktop from PATH.
@@ -44,6 +46,12 @@ stdenvNoCC.mkDerivation {
     install -Dm644 kitty.conf $out/share/kwak/settings-kitty.conf
     makeWrapper ${python}/bin/python3 $out/libexec/kwak-settings-tui \
       --add-flags "$out/share/kwak/settings.py" \
+      --prefix PATH : ${
+        lib.makeBinPath [
+          wireplumber
+          networkmanager
+        ]
+      } \
       ${lib.optionalString (hyprland != null) "--prefix PATH : ${lib.makeBinPath [ hyprland ]}"}
     # In a terminal, run there; otherwise open a borderless kitty window.
     mkdir -p $out/bin

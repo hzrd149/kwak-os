@@ -150,6 +150,22 @@ finishes a saved account's deletion if sign-out was interrupted by a restart.
 
 ## Napplets
 
+New Nostr sessions open **My Games**. The library follows your identity using
+a NIP-78 `kwak-napplets` event; missing games download automatically. **Find
+Games** offers **Play Now** for a temporary launch and **Add to My Games** to
+save a game. Removing a game updates your library everywhere without clearing
+local cached files. Offline changes retry in the background. Ending a session
+with pending changes offers a retry or an explicit exit without saving them.
+
+The library stays on desktop one. The Windows key opens a game overlay with
+Resume, Exit Game, Back to Library, screenshots, Hyprflow, Settings and Session.
+Capture saves locally; publishing requires confirmation and uses your media
+servers and relays. **Super+Q** opens a terminal. After ten
+minutes idle, the sign-in screen returns and game processes are suspended.
+Swiping back resumes the existing session. Suspension retains game memory.
+See [kiosk implementation and validation](kiosk.md).
+
+
 Every Nostr user gets [kwakore](https://github.com/hzrd149/kwakore), which runs
 napplets in their own windows. It is a user service, started the first time it is
 used (the `kwakore` command or a napplet's launcher entry). Napplets are already

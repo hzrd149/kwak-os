@@ -4,6 +4,11 @@
 
   networking.hostName = "kwakos-vm";
 
+  # QEMU's GTK window reports its initial 640x480 size as the guest's
+  # preferred mode, overriding xres/yres; request a 4:3 mode explicitly.
+  kwak.monitorMode = "1600x1200";
+  boot.kernelParams = [ "video=Virtual-1:1600x1200" ];
+
   # This credential is confined to the disposable local VM.
   users.users.kwak.initialPassword = "nixos";
 
@@ -28,7 +33,7 @@
     };
     qemu.options = [
       "-vga none"
-      "-device virtio-vga-gl,xres=1920,yres=1080"
+      "-device virtio-vga-gl,xres=1600,yres=1200"
       "-display gtk,gl=on"
     ];
   };

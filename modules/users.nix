@@ -73,6 +73,10 @@ let
       unlock_cmd = pkill -USR1 hyprlock
       before_sleep_cmd = loginctl lock-session
     }
+    listener {
+      timeout = 600
+      on-timeout = ${pkgs.kwak-userd}/bin/kwak-userd idle-session
+    }
   '';
   pamExec = "${config.security.pam.package}/lib/security/pam_exec.so";
   greetdPam = config.security.pam.services.greetd.rules;

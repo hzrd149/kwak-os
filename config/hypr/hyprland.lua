@@ -1,6 +1,6 @@
 -- kwakOS / Hyprland 0.56.2
 -- System fallback: ~/.config/hypr/hyprland.lua takes precedence.
-hl.monitor({ output = "", mode = "preferred", position = "auto", scale = "auto" })
+hl.monitor({ output = "", mode = kwak_monitor_mode or "preferred", position = "auto", scale = "auto" })
 
 local layouts = { kwassik = "monocle", master = "master", dwindle = "dwindle", scrolling = "scrolling" }
 local mode = "kwassik"
@@ -45,6 +45,14 @@ hl.window_rule({
     match = { class = "org\\.kwak\\..+" },
     float = true,
     center = true,
+})
+
+-- The library is the session's home screen; the system menu floats above games.
+hl.window_rule({
+    name = "kwak-library",
+    match = { class = "org\\.kwak\\.Library" },
+    float = false,
+    workspace = "1",
 })
 
 local function is_kwak_app(window)
@@ -114,13 +122,18 @@ end)
 
 hl.on("hyprland.start", function()
     hl.exec_cmd("kwak-wallpaper")
+    -- Administrators and the live installer keep their desktop startup.
+    local user = os.getenv("USER") or ""
+    if user:match("^n%x%x%x%x%x%x%x%x%x%x$") then hl.exec_cmd("kwak-kiosk") end
 end)
+
+-- A lone Windows key opens the menu; Super+Q remains the terminal escape hatch.
+hl.bind("SUPER + Super_L", hl.dsp.exec_cmd("kwak-overlay"), { release = true })
 
 hl.bind("SUPER + R", hl.dsp.exec_cmd("kwak-launcher"))
 hl.bind("SUPER + SPACE", hl.dsp.exec_cmd("kwak-launcher"))
 hl.bind("SUPER + comma", hl.dsp.exec_cmd("kwak-settings"))
 hl.bind("SUPER + Q", hl.dsp.exec_cmd("kitty"))
-hl.bind("SUPER + E", hl.dsp.exec_cmd("dolphin"))
 hl.bind("SUPER + C", hl.dsp.window.close())
 hl.bind("SUPER + F", hl.dsp.window.fullscreen({ mode = "fullscreen" }))
 hl.bind("SUPER + L", hl.dsp.exec_cmd("loginctl lock-session"))

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Kiosk Fixture</title>
+<style>
+body { margin: 0; padding: 32px; background: #001208; color: #aaffbb; font: 22px monospace; }
+button { padding: 24px; background: #103a20; color: #aaffbb; border: 2px solid #48e878; font: inherit; }
+pre { white-space: pre-wrap; }
+</style>
+<h1>KWAK / __FIXTURE_ID__</h1>
+<p>Press Enter or click to score and start a quiet tone. Focus loss pauses play and audio.</p>
+<button id="play" autofocus>PLAY · +1 point</button>
+<pre id="report">Waiting for sandbox storage…</pre>
+<script>
+(async () => {
+  const state = {fixture: "__FIXTURE_ID__", instance: crypto.randomUUID(), heartbeat: 0,
+    gameTicks: 0, score: 0, focused: document.hasFocus(), audio: "not-started", errors: []};
+  let context, oscillator, writing = false;
+  async function save() {
+    if (writing) return;
+    writing = true;
+    try {
+      await window.napplet.storage.setItem("kiosk.fixture", JSON.stringify(state));
+      document.querySelector("#report").textContent = JSON.stringify(state, null, 2);
+    } catch (error) { state.errors.push(String(error)); }
+    finally { writing = false; }
+  }
+  async function focusChanged() {
+    state.focused = document.hasFocus();
+    if (context) {
+      try {
+        if (state.focused) await context.resume(); else await context.suspend();
+        state.audio = context.state;
+      } catch (error) { state.errors.push(String(error)); }
+    }
+    await save();
+  }
+  document.querySelector("#play").addEventListener("click", async () => {
+    state.score++;
+    try {
+      if (!context) {
+        context = new AudioContext();
+        oscillator = context.createOscillator();
+        const gain = context.createGain(); gain.gain.value = .02;
+        oscillator.frequency.value = 440; oscillator.connect(gain); gain.connect(context.destination);
+        oscillator.start();
+      }
+      await context.resume(); state.audio = context.state;
+    } catch (error) { state.audio = "error"; state.errors.push(String(error)); }
+    await save();
+  });
+  window.addEventListener("focus", focusChanged);
+  window.addEventListener("blur", focusChanged);
+  document.addEventListener("visibilitychange", focusChanged);
+  // The trusted shim is installed before the artifact runs, but wait for its
+  // shell handshake before issuing the first request.
+  for (let attempt = 0; !window.napplet?.storage && attempt < 100; attempt++)
+    await new Promise(resolve => setTimeout(resolve, 50));
+  await save();
+  setInterval(async () => {
+    state.heartbeat++;
+    if (state.focused) state.gameTicks++;
+    if (context) state.audio = context.state;
+    await save();
+  }, 250);
+})();
+</script></html>

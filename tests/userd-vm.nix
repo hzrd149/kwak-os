@@ -31,10 +31,31 @@ pkgs.testers.runNixOSTest {
       serviceConfig.ExecStart = "${pkgs.nak}/bin/nak serve --hostname 127.0.0.1";
     };
     environment.systemPackages = [ pkgs.pamtester ];
+    # nak 0.17's constant authorized secret allows connect but doesn't retain
+    # authorization for sign_event. Use a stable preauthorized test client.
+    systemd.services.kwak-userd.environment.NOSTR_CLIENT_KEY =
+      "2222222222222222222222222222222222222222222222222222222222222222";
+    # A stand-in game process proves that the same freezer commands used by
+    # card/idle switching suspend descendants without stopping the user bus.
+    systemd.user.services.kwakore.serviceConfig.ExecStart =
+      "${pkgs.python3}/bin/python3 ${pkgs.writeText "game-counter.py" ''
+        import pathlib, subprocess, sys, time
+        subprocess.Popen([sys.executable, "-c", """
+        import pathlib, time
+        counter = pathlib.Path.home() / "game-child-counter"
+        for value in range(100000):
+            counter.write_text(str(value))
+            time.sleep(0.1)
+        """])
+        counter = pathlib.Path.home() / "game-counter"
+        for value in range(100000):
+            counter.write_text(str(value))
+            time.sleep(0.1)
+      ''}";
   };
 
   testScript = ''
-    import json, shlex
+    import json, shlex, time
 
     def call(op, as_user="greeter", **fields):
         out = machine.succeed(f"runuser -u {as_user} -- ${client} {op} {shlex.quote(json.dumps(fields))}")
@@ -83,6 +104,42 @@ pkgs.testers.runNixOSTest {
         assert call("login_nsec", nsec=sk)["password_required"]
         machine.fail(f"runuser -u greeter -- ${client} unlock '{{\"username\": \"{user}\", \"password\": \"nope\"}}'")
 
+    with subtest("the saved library follows the identity through an acknowledged NIP-78 event"):
+        token = call("unlock", username=user, password="hunter2")["token"]
+        call("redeem", as_user="root", username=user, token=token)
+        address = "35129:" + "a" * 64 + ":game"
+        assert call("napplet_library", as_user=user)["addresses"] == []
+        saved = call("update_napplet_library", as_user=user, address=address, action="add")
+        assert saved["addresses"] == [address]
+        machine.succeed("systemctl restart kwak-userd.service")
+        # Reads remain possible when the session signer has not been restored;
+        # this local relay does not require AUTH. The list must come from relay.
+        assert call("napplet_library", as_user=user)["addresses"] == [address]
+        token = call("unlock", username=user, password="hunter2")["token"]
+        call("redeem", as_user="root", username=user, token=token)
+        assert call("update_napplet_library", as_user=user, address=address, action="remove")["addresses"] == []
+
+    with subtest("game freezing leaves the user manager responsive and resumes progress"):
+        machine.succeed(f"loginctl enable-linger {user}")
+        machine.wait_for_unit(f"user@{uid}.service")
+        control = f"systemctl --user --machine={user}@.host"
+        machine.succeed(f"{control} start kwakore.service")
+        machine.wait_until_succeeds(f"test -s /home/{user}/game-counter")
+        machine.wait_until_succeeds(f"test -s /home/{user}/game-child-counter")
+        machine.succeed(f"{control} freeze kwakore.service")
+        group = machine.succeed(f"{control} show kwakore.service -p ControlGroup --value").strip()
+        machine.succeed(f"grep -q 'frozen 1' /sys/fs/cgroup{group}/cgroup.events")
+        before = machine.succeed(f"cat /home/{user}/game-counter")
+        child_before = machine.succeed(f"cat /home/{user}/game-child-counter")
+        time.sleep(1)
+        assert machine.succeed(f"cat /home/{user}/game-counter") == before
+        assert machine.succeed(f"cat /home/{user}/game-child-counter") == child_before
+        machine.succeed(f"{control} thaw kwakore.service")
+        machine.wait_until_succeeds(f"test $(cat /home/{user}/game-counter) -gt {before.strip()}")
+        machine.wait_until_succeeds(f"test $(cat /home/{user}/game-child-counter) -gt {child_before.strip()}")
+        machine.succeed(f"{control} stop kwakore.service")
+        machine.succeed(f"loginctl disable-linger {user}")
+
     with subtest("tokens are single use and only for their user"):
         assert pam("n0123456789", grant["token"]) != 0
         grant = call("unlock", username=user, password="hunter2")
@@ -128,9 +185,10 @@ pkgs.testers.runNixOSTest {
     with subtest("bunker sign-in confirms the pubkey and is saved"):
         remote = machine.succeed("nak key generate").strip()
         rpk = machine.succeed(f"echo {remote} | nak key public").strip()
+        client_pubkey = machine.succeed("echo " + "22" * 32 + " | nak key public").strip()
         machine.succeed(
             f"systemd-run --unit=remote-bunker -E HOME=/root -E NOSTR_SECRET_KEY={remote} "
-            "-p StandardOutput=null nak bunker -s s3cret ${relay}"
+            f"-p StandardOutput=null nak bunker -k {client_pubkey} -s s3cret ${relay}"
         )
         uri = f"bunker://{rpk}?relay=ws%3A%2F%2F127.0.0.1%3A10547&secret=s3cret"
         grant = json.loads(machine.wait_until_succeeds(
@@ -143,6 +201,8 @@ pkgs.testers.runNixOSTest {
         assert call("list_known")[0]["method"] == "bunker"
         machine.fail(f"runuser -u greeter -- ${client} unlock '{{\"username\": \"{user}\"}}'")
         assert pam(user, call("unlock", username=user, password="bunkerpw")["token"]) == 0
+        address = "35129:" + "b" * 64 + ":bunker-game"
+        assert call("update_napplet_library", as_user=user, address=address, action="add")["addresses"] == [address]
 
     with subtest("only root can remove an identity"):
         machine.fail(f"runuser -u greeter -- ${client} remove '{{\"username\": \"{user}\"}}'")

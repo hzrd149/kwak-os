@@ -1,0 +1,11 @@
+{
+  "fixture": "PipeWire null sink in disposable kwakos-vm; no physical audio output",
+  "initial_default_sink": "absent",
+  "checks": {
+    "initial_50_percent": true,
+    "five_percent_increment_and_decrement": true,
+    "upper_cap_100_percent": true,
+    "mute_and_unmute": true,
+    "sink_removed_and_absent_default_restored": true
+  }
+}

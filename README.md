@@ -162,12 +162,23 @@ The repo's `.#physical` uses a hardware template—do not deploy it unchanged.
 
 ## Desktop
 
+Nostr sessions open the green terminal game library. Browse **My Games** or
+**Find Games**, install a game, or choose **Play Now** for a temporary launch.
+The library stays on desktop one. Press the Windows key for the game overlay:
+resume, exit the current game, return to your library, capture or publish a
+screenshot, open Settings or Session, or **Switch Games** through Hyprflow.
+Publishing asks for confirmation. **Super+Q** opens a terminal. Your library syncs through
+NIP-78 and missing games download automatically. After 10 minutes idle, the
+kiosk returns to sign-in and suspends game processes until the session resumes.
+See [the kiosk implementation notes](docs/kiosk.md) for validation and limits.
+
 | Shortcut | Action |
 | --- | --- |
 | Super+Space / Super+R | Launcher |
 | Super+Tab | Workspace overview |
 | Super+, | Settings and layout modes |
-| Super+Q / Super+E | Terminal / files |
+| Super | System menu |
+| Super+Q | Terminal |
 | Super+C / Super+F | Close / fullscreen |
 | Super+1…0 | Switch workspace |
 | Super+Shift+M | End session |

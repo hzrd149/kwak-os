@@ -1,0 +1,30 @@
+{
+  "date": "2026-10-11",
+  "result": "PASS",
+  "environment": "owned disposable graphical kwakos-vm, user kwak, existing eth0/SSH and compositor preserved",
+  "source_sha256": "15779f4bfbaed43130a3e8f9134075a9c176bf27d68499dd69441e4c291e7b0a",
+  "fixture": {
+    "radios": "two mac80211_hwsim virtual radios",
+    "access_point": "hostapd WPA2 personal; ephemeral random passphrase",
+    "addressing": "dnsmasq DHCP on fixture interface, no default gateway or DNS override",
+    "vm_overrides": "qemu-vm.nix disables wireless; transient supplicant and standard D-Bus policy were supplied only for fixture",
+    "firewall": "temporary UDP67/68 INPUT accepts restricted to fixture interfaces"
+  },
+  "verified": [
+    "NetworkController.scan found fake WPA2 access point",
+    "NetworkController.connect ran as unprivileged kwak user and obtained DHCP address",
+    "NetworkManager D-Bus Settings.Connection.Unsaved was true",
+    "profile permissions user:kwak, autoconnect no, psk-flags 2",
+    "password absent from command argument lists",
+    "temporary password file removed after connection",
+    "no password found in files under NetworkManager persistent/runtime profile and state directories",
+    "eth0 remained connected throughout",
+    "test profile, virtual radios, transient services, firewall exceptions, temporary D-Bus bind mount and fixture credential files removed"
+  ],
+  "limitations": [
+    "software simulated WPA2 radio and access point; physical adapters and radio drivers not tested",
+    "WPA3, enterprise Wi-Fi, captive portals and internet reachability not tested",
+    "connected user was existing VM account kwak in networkmanager group; dynamic Nostr user authorization is covered by separate configuration checks rather than this live probe",
+    "the controller intentionally uses a private transient password file during activation; absence-on-disk verification applies after activation and to persisted NetworkManager files"
+  ]
+}

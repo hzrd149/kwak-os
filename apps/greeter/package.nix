@@ -53,6 +53,7 @@ stdenvNoCC.mkDerivation {
     for file in greeter.py client.py kitty.conf; do
       install -Dm644 $file $out/share/kwak-greeter/$file
     done
+    install -Dm644 ${../kiosk/library.py} $out/share/kwak-greeter/library.py
     makeWrapper ${python}/bin/python3 $out/libexec/kwak-greeter-tui \
       --add-flags "$out/share/kwak-greeter/greeter.py"
 

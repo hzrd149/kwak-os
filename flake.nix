@@ -54,6 +54,7 @@
         # Each app under apps/ is also a standalone flake; the OS builds them
         # from their package.nix with this flake's pinned nixpkgs.
         kwak-settings = final.callPackage ./apps/settings/package.nix { };
+        kwak-kiosk = final.callPackage ./apps/kiosk/package.nix { };
         kwak-userd = final.callPackage ./apps/userd/package.nix { };
         kwak-greeter = final.callPackage ./apps/greeter/package.nix { };
         kwak-cards = final.callPackage ./apps/cards/package.nix { skcSource = nostr-swipe-cards; };
@@ -181,6 +182,7 @@
           hyprlax
           wofi
           kwak-settings
+          kwak-kiosk
           kwak-userd
           kwak-greeter
           kwak-cards
@@ -285,7 +287,7 @@
           assert self.nixosConfigurations.physical.config.services.greetd.enable;
           pkgs.runCommand "kwak-iso-config-check" { } "touch $out";
         # App unit tests run in each package's checkPhase.
-        inherit (pkgs) kwak-settings kwak-userd kwak-greeter;
+        inherit (pkgs) kwak-settings kwak-kiosk kwak-userd kwak-greeter;
         window-modes = pkgs.runCommand "kwak-window-modes-check" { nativeBuildInputs = [ pkgs.lua5_5 ]; } ''
           lua ${./tests/window-modes.lua} ${./config/hypr/hyprland.lua}
           touch $out

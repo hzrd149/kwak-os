@@ -22,6 +22,7 @@ let
   };
   keyboardConfig = pkgs.writeText "kwak-keyboard.lua" ''
     kwak_keyboard = { layout = ${builtins.toJSON config.services.xserver.xkb.layout}, variant = ${builtins.toJSON config.services.xserver.xkb.variant} }
+    kwak_monitor_mode = ${builtins.toJSON config.kwak.monitorMode}
   '';
 in
 {
@@ -90,6 +91,7 @@ in
     kwak-launcher
     kwak-wallpaper
     kwak-settings
+    kwak-kiosk
     adwaita-icon-theme
     kdePackages.dolphin
     firefox

@@ -16,6 +16,9 @@ Saved users are removed, with all their data, when they sign out of the computer
 """
 
 import contextlib
+import base64
+import io
+from concurrent.futures import ThreadPoolExecutor
 import fcntl
 import hashlib
 import json
@@ -26,6 +29,7 @@ import re
 import secrets
 import shutil
 import socket
+import stat
 import struct
 import subprocess
 import sys
@@ -34,6 +38,7 @@ import time
 import unicodedata
 import urllib.parse
 import urllib.request
+import urllib.error
 from urllib.parse import urlparse
 
 
@@ -398,9 +403,13 @@ def relay_list(event):
 
 
 def valid_url(value, schemes):
-    if not isinstance(value, str) or len(value) > 2048 or any(c.isspace() for c in value):
+    if not isinstance(value, str) or len(value) > 2048 or any(c.isspace() or unicodedata.category(c) in ("Cc", "Cs") for c in value):
         return False
-    parsed = urlparse(value)
+    try:
+        parsed = urlparse(value)
+        parsed.port
+    except ValueError:
+        return False
     return parsed.scheme in schemes and bool(parsed.hostname) and not parsed.username and not parsed.password
 
 
@@ -412,6 +421,124 @@ def outbox_relays(event):
 
 def gecos(name):
     return re.sub(r"[:,=\\\x00-\x1f\x7f]", "", name or "").strip()[:64]
+
+
+def napplet_addresses(value):
+    """The bounded canonical address list saved in kwak-napplets."""
+    if not isinstance(value, list) or len(value) > 500:
+        raise UserError("Invalid game library.")
+    for address in value:
+        if not isinstance(address, str) or len(address.encode()) > 4096:
+            raise UserError("Invalid game address.")
+        parts = address.split(":", 2)
+        if (len(parts) != 3 or parts[0] != "35129" or not HEX_KEY.fullmatch(parts[1])
+                or any(unicodedata.category(c).startswith("C") or c in "\u2028\u2029" for c in parts[2])):
+            raise UserError("Invalid game address.")
+    if sum(len(item.encode()) for item in value) > 200000:
+        raise UserError("Game library is too large.")
+    return sorted(set(value))
+
+
+def valid_signed_event(event):
+    from coincurve import PublicKeyXOnly
+    try:
+        template = event_template(event)
+        pubkey = event["pubkey"]
+        return (bool(HEX_KEY.fullmatch(pubkey))
+                and template["created_at"] <= int(time.time()) + 300
+                and event_id(pubkey, template) == event["id"]
+                and PublicKeyXOnly(bytes.fromhex(pubkey)).verify(
+                    bytes.fromhex(event["sig"]), bytes.fromhex(event["id"])))
+    except (UserError, KeyError, TypeError, ValueError):
+        return False
+
+
+class LibraryRelays:
+    """Bounded NIP-01/NIP-42 exchanges; require EOSE or acknowledged publication."""
+    def exchange(self, relay, pubkey, signer, event=None):
+        from websocket import create_connection
+        subscription = secrets.token_hex(8)
+        request = ["REQ", subscription, {"kinds": [30078], "authors": [pubkey],
+                                        "#d": ["kwak-napplets"], "limit": 1}]
+        message = ["EVENT", event] if event else request
+        events, auth_id, authenticated, challenges = [], None, False, set()
+        deadline = time.monotonic() + 20
+        connection = create_connection(relay, timeout=10, enable_multithread=True)
+        try:
+            connection.send(json.dumps(message))
+            for _ in range(64):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise UserError("Library relay timed out.")
+                connection.settimeout(remaining)
+                raw = connection.recv()
+                if len(raw) > (1 << 20):
+                    raise UserError("Library relay response too large.")
+                frame = json.loads(raw)
+                if not isinstance(frame, list) or not frame:
+                    continue
+                if frame[0] == "AUTH" and len(frame) == 2 and isinstance(frame[1], str):
+                    if frame[1] in challenges or len(challenges) >= 2 or len(frame[1]) > 4096:
+                        raise UserError("Library relay authentication failed.")
+                    challenges.add(frame[1])
+                    auth = signer({"kind": 22242, "created_at": int(time.time()), "content": "",
+                                   "tags": [["relay", relay], ["challenge", frame[1]]]})
+                    auth_id = auth["id"]
+                    connection.send(json.dumps(["AUTH", auth]))
+                elif frame[0] == "OK" and len(frame) >= 3 and frame[1] == auth_id:
+                    if frame[2] is not True:
+                        raise UserError("Library relay authentication failed.")
+                    authenticated = True
+                    connection.send(json.dumps(message))
+                elif event and frame[0] == "OK" and len(frame) >= 3 and frame[1] == event["id"]:
+                    if frame[2] is True:
+                        return True
+                    reason = frame[3] if len(frame) > 3 else ""
+                    if isinstance(reason, str) and reason.startswith("auth-required:") and not authenticated:
+                        continue
+                    raise UserError("Library relay rejected the update.")
+                elif not event and frame[0] == "EVENT" and len(frame) == 3 and frame[1] == subscription:
+                    candidate = frame[2]
+                    if (isinstance(candidate, dict) and candidate.get("pubkey") == pubkey
+                            and candidate.get("kind") == 30078
+                            and ["d", "kwak-napplets"] in candidate.get("tags", [])
+                            and valid_signed_event(candidate)):
+                        events.append(candidate)
+                elif not event and frame[0] == "EOSE" and len(frame) == 2 and frame[1] == subscription:
+                    return events
+                elif frame[0] == "CLOSED" and len(frame) >= 3 and frame[1] == subscription:
+                    if isinstance(frame[2], str) and frame[2].startswith("auth-required:") and not authenticated:
+                        continue
+                    raise UserError("Library relay refused the request.")
+            raise UserError("Library relay did not complete the request.")
+        finally:
+            connection.close()
+
+    def fetch(self, relays, pubkey, signer):
+        successes, events = 0, []
+        def read(relay):
+            try:
+                return self.exchange(relay, pubkey, signer)
+            except Exception:
+                return None
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            for result in pool.map(read, relays):
+                if result is not None:
+                    successes += 1
+                    events.extend(result)
+        if not successes:
+            raise UserError("Could not load your games. Retry when the network is available.")
+        return min(events, key=lambda e: (-e["created_at"], e["id"]), default=None)
+
+    def publish(self, relays, pubkey, signer, event):
+        def send(relay):
+            try:
+                return self.exchange(relay, pubkey, signer, event) is True
+            except Exception:
+                return False
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            if not any(list(pool.map(send, relays))):
+                raise UserError("Library change waiting to sync. No relay accepted it.")
 
 
 # --- Nostr operations through nak --------------------------------------------
@@ -664,6 +791,9 @@ class UserManager:
         self.switch_from = {}
         # Switch greeters opened from a session's menu rather than by a swipe.
         self.switch_requests = set()
+        self.library_relays = LibraryRelays()
+        self.library_locks = {}
+        self.library_events = {}
 
     # Registry ---------------------------------------------------------------
 
@@ -1176,8 +1306,27 @@ class UserManager:
         entry = self.entry(session["user"])
         if not (entry and entry.get("temporary")):
             self.sessions.lock(session["id"])
+        self._game_resources(session["user"], "freeze")
+
+    def _game_resources(self, username, action):
+        """Suspend game descendants without freezing the compositor or user manager."""
+        if self.managed(username) is None:
+            return
+        command = ["systemctl", "--user", f"--machine={username}@.host"]
+        try:
+            active = self.run([*command, "is-active", "--quiet", "kwakore.service"],
+                              capture_output=True, text=True, check=False, timeout=5)
+            if active.returncode:
+                return
+            result = self.run([*command, action, "kwakore.service"],
+                              capture_output=True, text=True, check=False, timeout=5)
+            if result.returncode:
+                log(f"game {action} failed for {username}")
+        except (OSError, subprocess.TimeoutExpired):
+            log(f"game {action} timed out for {username}")
 
     def _switch_to(self, session):
+        self._game_resources(session["user"], "thaw")
         self.sessions.activate(session["id"])
         self.sessions.unlock(session["id"])
 
@@ -1202,6 +1351,13 @@ class UserManager:
         to it needs its password or card. Escape on that screen goes back.
         """
         session = self.sessions.of_pid(pid) if pid is not None else None
+        if session is None and pid is not None:
+            # UWSM starts the compositor and apps beneath the user manager,
+            # outside session-N.scope. The server supplies the socket peer's
+            # identity and PID; permit only that identity's visible session.
+            active = self.sessions.active()
+            if active and active["class"] == "user" and active["user"] == username:
+                session = active
         if session is None or session["class"] != "user" or session["user"] != username:
             raise UserError("Not called from your own session.")
         if self._start_switch_greeter(session, requested=True) is None:
@@ -1217,6 +1373,17 @@ class UserManager:
             raise UserError("Not a Nostr identity.")
         return {"username": username, "name": entry.get("name") or username,
                 "temporary": bool(entry.get("temporary"))}
+
+    def idle_session(self, username):
+        # hypridle runs under the user manager, outside session-N.scope. Bind
+        # this narrowly to the requesting user's currently visible session.
+        session = self.sessions.active()
+        if not session or session["class"] != "user" or session["user"] != username:
+            return {"opened": False}
+        if self._start_switch_greeter(session, requested=True) is None:
+            return {"opened": False}
+        self._lock(session)
+        return {"opened": True}
 
     def switch_done(self, instance, pid=None):
         """Close a switch greeter and, if it is on screen, return to a session.
@@ -1238,6 +1405,7 @@ class UserManager:
                         None)
             )
             if target is not None:
+                self._game_resources(target["user"], "thaw")
                 self.sessions.activate(target["id"])
             else:
                 self.sessions.chvt(1)
@@ -1302,6 +1470,7 @@ class UserManager:
     def _drop(self, username):
         with self.lock:
             self.held.pop(username, None)
+            self.library_events.pop(username, None)
 
     def close_session(self, username):
         """Logging out forgets the key; logging out of a temporary identity deletes it."""
@@ -1424,6 +1593,184 @@ class UserManager:
         return {"id": event["id"], "relays": relays}
 
     # Signing for the session ---------------------------------------------------
+
+    def _screenshot_png(self, username, filename):
+        """Read only an owned regular PNG below the user's fixed screenshot dir.
+
+        Walk with directory descriptors so replacing any parent with a symlink
+        cannot redirect this root process after a path check.
+        """
+        from PIL import Image
+        if (not isinstance(filename, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,179}\.png", filename)
+                or filename in (".", "..")):
+            raise UserError("Choose a saved PNG screenshot.")
+        account = self.users.getpwnam(username)
+        home = Path(account.pw_dir)
+        if not home.is_absolute() or ".." in home.parts:
+            raise UserError("Screenshot storage is unavailable.")
+        directory = home / ".local" / "share" / "kwak" / "screenshots"
+        descriptor = None
+        try:
+            descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+            for component in directory.parts[1:]:
+                child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
+                os.close(descriptor)
+                descriptor = child
+            file_descriptor = os.open(filename, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=descriptor)
+            with os.fdopen(file_descriptor, "rb") as screenshot:
+                info = os.fstat(screenshot.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_uid != account.pw_uid or not 0 < info.st_size <= 16 * 1024 * 1024:
+                    raise UserError("Screenshot must be your own PNG file, up to 16 MiB.")
+                data = screenshot.read(16 * 1024 * 1024 + 1)
+            if len(data) > 16 * 1024 * 1024:
+                raise UserError("Screenshot is too large.")
+            with Image.open(io.BytesIO(data)) as image:
+                width, height = image.size
+                if (image.format != "PNG" or getattr(image, "is_animated", False) or
+                        width < 1 or height < 1 or width * height > 40_000_000):
+                    raise UserError("Screenshot must be a valid PNG image.")
+                image.verify()
+            return data, width, height
+        except UserError:
+            raise
+        except (OSError, ValueError, SyntaxError, Image.DecompressionBombError) as error:
+            raise UserError("Screenshot could not be read. Capture it again.") from error
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+
+    def _screenshot_upload(self, server, data, authorization):
+        """Bounded Blossom upload, without forwarding authorization on redirects."""
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, request, response, code, message, headers, url):
+                return None
+        request = urllib.request.Request(server.rstrip("/") + "/upload", data=data, method="PUT",
+                                         headers={"Content-Type": "image/png", "Authorization": authorization})
+        try:
+            with urllib.request.build_opener(NoRedirect).open(request, timeout=20) as response:
+                if not 200 <= response.status < 300:
+                    raise UserError("Screenshot upload failed. Please retry.")
+                body = response.read(64 * 1024 + 1)
+            if len(body) > 64 * 1024:
+                raise ValueError("oversized response")
+            return json.loads(body)
+        except (OSError, ValueError, urllib.error.HTTPError) as error:
+            raise UserError("Screenshot upload failed. Please retry.") from error
+
+    def publish_screenshot(self, username, filename, caption, game):
+        if self.managed(username) is None:
+            raise UserError("Unknown Nostr identity.")
+        if not isinstance(caption, str) or len(caption) > 1000 or any(unicodedata.category(char) in ("Cc", "Cs") and char not in "\n\t" for char in caption):
+            raise UserError("Use a screenshot caption of up to 1000 characters.")
+        napplet_addresses([game])
+        data, width, height = self._screenshot_png(username, filename)
+        settings = self.account_settings(username)
+        servers = list(dict.fromkeys(server for server in settings["media_servers"]
+                                     if valid_url(server, ("https",))))[:20]
+        if not servers:
+            raise UserError("Add a media server in Settings before publishing screenshots.")
+        relays = list(dict.fromkeys([*outbox_relays({"tags": settings["relays"]}), *self.config["relays"]]))[:20]
+        blob_hash = hashlib.sha256(data).hexdigest()
+        now = int(time.time())
+        authorization = self._library_sign(username, {
+            "kind": 24242, "created_at": now, "content": "Upload blob",
+            "tags": [["t", "upload"], ["x", blob_hash], ["expiration", str(now + 3600)]]})
+        header = "Nostr " + base64.b64encode(json.dumps(authorization, separators=(",", ":")).encode()).decode()
+        url = None
+        for server in servers:
+            try:
+                uploaded = self._screenshot_upload(server, data, header)
+            except UserError:
+                continue
+            if (isinstance(uploaded, dict) and uploaded.get("sha256") == blob_hash and
+                    uploaded.get("size") == len(data) and valid_url(uploaded.get("url"), ("https",))):
+                target, source = urlparse(uploaded["url"]), urlparse(server)
+                if (target.hostname, target.port or 443) != (source.hostname, source.port or 443):
+                    continue
+                url = uploaded["url"]
+                break
+        if url is None:
+            raise UserError("No media server confirmed this screenshot. Please retry.")
+        event = self._library_sign(username, {
+            "kind": 1, "created_at": int(time.time()),
+            "content": caption.strip() + ("\n\n" if caption.strip() else "") + url,
+            "tags": [["imeta", "url " + url, "m image/png", "x " + blob_hash, f"dim {width}x{height}"],
+                     ["a", game]]})
+        pubkey = self.managed(username)["pubkey"]
+        self.library_relays.publish(relays, pubkey, lambda template: self._library_sign(username, template), event)
+        return {"event_id": event["id"], "url": url, "relays": relays}
+
+    def _library_lock(self, username):
+        with self.lock:
+            return self.library_locks.setdefault(username, threading.Lock())
+
+    def _library_sign(self, username, template):
+        entry = self.managed(username)
+        if entry is None:
+            raise UserError("Unknown Nostr identity.")
+        if entry["method"] == "bunker":
+            material = json.loads((self.key_dir(username) / "key.json").read_text())
+            event = self.nak.sign(template, material["bunker"], self.key_dir(username) / "nak")
+        else:
+            with self.lock:
+                secret = self.held.get(username)
+            if secret is None:
+                raise UserError("No key is held for this session; sign in again to sync.")
+            event = sign_event(secret, template)
+        if (event.get("pubkey") != entry["pubkey"] or not valid_signed_event(event)
+                or any(event.get(key) != value for key, value in template.items())):
+            raise UserError("The signer returned an invalid library update.")
+        return event
+
+    def _library_fetch(self, username):
+        entry = self.managed(username)
+        if entry is None:
+            raise UserError("Unknown Nostr identity.")
+        relay_event = latest(self.nak.fetch(entry["pubkey"], self.config["relays"], kinds=(10002,)),
+                             10002, entry["pubkey"])
+        relays = list(dict.fromkeys([*outbox_relays(relay_event), *self.config["relays"]]))[:20]
+        signer = lambda template: self._library_sign(username, template)
+        event = self.library_relays.fetch(relays, entry["pubkey"], signer)
+        cached = self.library_events.get(username)
+        if cached and (event is None or (-cached["created_at"], cached["id"]) < (-event["created_at"], event["id"])):
+            event = cached
+        if event is None:
+            addresses = []
+        else:
+            try:
+                payload = json.loads(event["content"])
+                if not isinstance(payload, dict) or payload.get("version") != 1:
+                    raise ValueError
+                addresses = napplet_addresses(payload["napplets"])
+            except (KeyError, ValueError, TypeError):
+                raise UserError("Your game library has an unsupported format; it was not overwritten.") from None
+            self.library_events[username] = event
+        return entry, relays, event, addresses
+
+    def napplet_library(self, username):
+        with self._library_lock(username):
+            entry, _relays, event, addresses = self._library_fetch(username)
+            return {"addresses": addresses, "event_id": event["id"] if event else None,
+                    "name": entry.get("name") or username}
+
+    def update_napplet_library(self, username, address, action):
+        napplet_addresses([address])
+        if action not in ("add", "remove"):
+            raise UserError("Invalid library action.")
+        with self._library_lock(username):
+            entry, relays, previous, addresses = self._library_fetch(username)
+            desired = set(addresses)
+            desired.add(address) if action == "add" else desired.discard(address)
+            addresses = napplet_addresses(list(desired))
+            template = {"kind": 30078,
+                        "created_at": max(int(time.time()), previous["created_at"] + 1 if previous else 0),
+                        "tags": [["d", "kwak-napplets"]],
+                        "content": json.dumps({"version": 1, "napplets": addresses}, separators=(",", ":"))}
+            event = self._library_sign(username, template)
+            self.library_relays.publish(relays, entry["pubkey"],
+                                        lambda value: self._library_sign(username, value), event)
+            self.library_events[username] = event
+            return {"addresses": addresses, "event_id": event["id"], "name": entry.get("name") or username}
 
     def _signer_client(self, pid):
         """Whether the process ``pid`` is a program trusted to ask before signing."""
@@ -1564,7 +1911,7 @@ GREETER_OPS = {"list_known", "login_nsec", "login_ncryptsec", "login_bunker",
 CARD_OPS = {"card_swipe"}
 ROOT_OPS = GREETER_OPS | {"redeem", "close_session", "remove", "list"}
 IDENTITY_OPS = {"signout", "account_settings", "publish_settings", "check_unlock",
-                "session_info", "switch_account"}
+                "session_info", "switch_account", "idle_session", "napplet_library", "update_napplet_library", "publish_screenshot"}
 # Local accounts such as kwak can switch accounts from their session too.
 LOCAL_OPS = {"switch_account"}
 SIGNER_OPS = {"signer.get_public_key", "signer.sign_event", "signer.nip44_encrypt",
@@ -1631,10 +1978,14 @@ class Server:
             "remove": lambda: m.remove(r["username"]),
             "signout": lambda: m.request_signout(name),
             "account_settings": lambda: m.account_settings(name),
+            "napplet_library": lambda: m.napplet_library(name),
+            "update_napplet_library": lambda: m.update_napplet_library(name, r["address"], r["action"]),
+            "publish_screenshot": lambda: m.publish_screenshot(name, r["filename"], r.get("caption", ""), r["game"]),
             "publish_settings": lambda: m.publish_settings(name, r["section"], r["value"], r.get("password")),
             "wait_card": lambda: m.wait_card(r.get("after"), r.get("wait", 30), pid,
                                              r.get("instance")),
             "switch_account": lambda: m.switch_account(name, pid),
+            "idle_session": lambda: m.idle_session(name),
             "session_info": lambda: m.session_info(name),
             "switch_done": lambda: m.switch_done(r["instance"], pid),
             "check_unlock": lambda: m.check_unlock(name, r.get("password")),
@@ -1727,6 +2078,8 @@ def main(argv=None):
         elif command == "signout":
             request("signout")
             print("Signing out; this account and all its data are being deleted.")
+        elif command == "idle-session":
+            request("idle_session", timeout=20)
         elif command == "list":
             for user in request("list"):
                 print(f"{user['username']}  {user['method']:9}  {user['npub']}  {user['name']}")

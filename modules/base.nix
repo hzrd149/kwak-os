@@ -11,6 +11,13 @@
     description = "Local administrator account, selected during installation.";
   };
 
+  options.kwak.monitorMode = lib.mkOption {
+    type = lib.types.str;
+    default = "preferred";
+    example = "1600x1200";
+    description = "Hyprland mode for every output, such as a fixed size for virtual displays.";
+  };
+
   config = {
     nix.settings.experimental-features = [
       "nix-command"
