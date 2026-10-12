@@ -34,16 +34,21 @@ async def check_size(runtime, size):
         installed = len(app.games)
         assert app.query_one("#games", OptionList).option_count == installed
         assert "Loading" not in str(app.query_one("#status").render())
-        rail = app.query_one("#games", OptionList)
-        panel = app.query_one("#game-panel")
-        assert rail.region.right <= panel.region.x
+        browser = app.query_one(Discovery)
+        assert browser.display and not app.query_one("#games", OptionList).display
+        assert len(browser.query(GameCard)) == installed
         if installed:
-            rail.highlighted = 0
-            await pilot.pause()
+            first = browser.cards[0]
+            await pilot.click(first)
             await app.workers.wait_for_complete()
-            assert app.selected()["address"] == app.games[0]["address"]
-            assert app.query_one("#game-title", Static).content == app.games[0]["name"]
-            assert "Installed release:" in str(app.query_one("#game-version", Static).content)
+            await pilot.pause()
+            assert isinstance(app.screen, GameDetails)
+            assert app.screen.address == app.games[0]["address"]
+            assert app.screen.query_one("#store-title", Static).content == app.games[0]["name"]
+            await pilot.click("#store-releases-tab")
+            assert "Installed release:" in str(app.screen.query_one("#store-release", Static).content)
+            await pilot.press("escape")
+            await pilot.pause()
         nav = app.query_one("#nav")
         for button in nav.query(Button):
             assert button.region.width > 0 and button.region.right <= nav.region.right
@@ -91,7 +96,7 @@ async def check_size(runtime, size):
         assert app.page == "installed" and len(app.games) == installed
         return {"columns": size[0], "rows": size[1], "installed": installed,
                 "catalog": catalog, "navigation": "passed", "search": "passed", "settings": "passed",
-                "split_library_details": "passed", "discovery_cards": "passed", "details_page": "passed"}
+                "library_grid_details": "passed", "discovery_cards": "passed", "details_page": "passed"}
 
 
 async def main():

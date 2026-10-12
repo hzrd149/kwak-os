@@ -1,4 +1,5 @@
 {
+  doCheck ? false,
   lib,
   stdenvNoCC,
   python3,
@@ -19,7 +20,7 @@ stdenvNoCC.mkDerivation {
   nativeBuildInputs = [ makeWrapper ];
   nativeCheckInputs = [ python ];
   dontBuild = true;
-  doCheck = true;
+  inherit doCheck;
   checkPhase = ''
     export PYTHONPATH=${../settings}
     python3 -m unittest discover -s tests

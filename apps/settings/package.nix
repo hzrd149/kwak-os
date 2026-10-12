@@ -1,4 +1,5 @@
 {
+  doCheck ? false,
   lib,
   stdenvNoCC,
   python3,
@@ -32,7 +33,7 @@ stdenvNoCC.mkDerivation {
   nativeBuildInputs = [ makeWrapper ];
   nativeCheckInputs = [ python ];
   dontBuild = true;
-  doCheck = true;
+  inherit doCheck;
 
   checkPhase = ''
     runHook preCheck

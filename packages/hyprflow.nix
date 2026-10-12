@@ -1,4 +1,5 @@
 {
+  doCheck ? false,
   lib,
   hyprland,
   fetchFromGitHub,
@@ -24,7 +25,7 @@ hyprland.stdenv.mkDerivation {
     makeFlagsArray+=("PKGS=hyprland lua egl glesv2 pangocairo")
   '';
 
-  doCheck = true;
+  inherit doCheck;
   checkTarget = "test";
 
   installPhase = ''

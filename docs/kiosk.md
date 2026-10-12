@@ -82,9 +82,9 @@ behavior for the overlay; it does not guarantee resource suspension.
 
 ## First implemented slice
 
-The launcher library uses a left-hand game list and a scrollable details pane.
-Selecting a row opens its details; launching is an explicit Play action. The
-pane shows the description, installed release, available update, known releases,
+The launcher library uses a responsive cover grid and a separate game page.
+Clicking a cover or pressing Enter opens details; launching is an explicit Play
+action. The page shows the description, installed release, available update, known releases,
 and running instances. Release checks run automatically; when a newer release is
 available, Update installs it through kwakore.
 Stop closes the selected game's exact runtime window IDs, including background
@@ -374,8 +374,8 @@ unless the user asks to change them:
 - **Compact shell:** prominent three-row primary navigation buttons; no large branding title
   or outer gutters. Spend space on browsing and useful game details rather
   than decorative framing or repeated headings.
-- **Discovery cards:** responsive artwork cards with a name, creator, and
-  short availability status. Discovery uses the full browsing width. Open a
+- **Cover grids:** My Games and Find Games use responsive artwork cards with
+  a name, creator, and short availability status across the browsing width. Open a
   dedicated store/details page with artwork, creator, description, release
   information, and clear Play and Install controls. Keep library
   management controls in My Games.
@@ -439,20 +439,26 @@ launcher runtime; merely opening details never installs or launches a game.
 
 ## Big Picture library hierarchy
 
-My Games retains the left-hand game list. The selected game's page places
-available artwork, its title, creator, and current state above the explicit
-Play, Stop, and Update actions. Artwork is optional: missing artwork collapses
-its area rather than leaving a blank banner. A supplied HTTPS banner takes
-priority over other artwork, and unchanged refreshes do not restart its load.
+My Games uses a responsive cover grid. Clicking a cover or pressing Enter opens
+its dedicated game page; selecting or opening details never launches a game.
+Back or Escape returns to the same query, selected cover, and scroll position.
+Find Games uses the same browsing model with its own search query.
 
-Game Info and Releases split the descriptive content from installed/available
-release information. These sections remain mounted while switching tabs;
-background refreshes preserve the selected game and active information tab.
-The details body scrolls independently while the main actions remain reachable
-at small terminal sizes. Discovery keeps its dedicated details/store page and
-its separate search query.
+The game page places artwork, title, creator, and current state above explicit
+Play/Stop, Update, and Install actions. The primary button changes from Play
+to Stop while this game is running. Applicable actions remain near the top
+while information below scrolls independently. Game Info and Releases separate
+the description and capabilities from installed/available release information.
+Background refreshes preserve the active information tab.
 
 This adopts the references' visual hierarchy without inventing Steam-specific
 data. Play time, last played, achievements, activity, and friends should appear
 only when kwakore exposes meaningful data for them. Version pinning still
 requires the corresponding core API; release history remains read-only.
+
+## Explicit build checks
+
+Normal package builds and launches skip the application test suites. Run
+`nix build .#checks.x86_64-linux.kwak-kiosk` to run the kiosk suite, or
+`nix flake check` for all flake checks. CI should select these check targets
+explicitly; launching `nix run .#kwak-kiosk -- --local` does not invoke them.

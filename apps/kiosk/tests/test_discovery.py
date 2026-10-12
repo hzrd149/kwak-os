@@ -45,7 +45,11 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(any(call[0] in ('try', 'launch') for call in runtime.calls))
             for control in ("play", "install"):
                 button = app.screen.query_one(f"#{control}", Button)
-                self.assertGreaterEqual(button.content_size.width, len(str(button.label)))
+                if button.display:
+                    self.assertGreaterEqual(button.content_size.width, len(str(button.label)))
+                else:
+                    self.assertEqual(control, 'install')
+                    self.assertTrue(button.disabled)
             await pilot.press('escape')
             await pilot.press('left')
             self.assertEqual(app.selected()['address'], GAMES[0]['address'])

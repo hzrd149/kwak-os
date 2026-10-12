@@ -105,3 +105,66 @@ class DetailsTests(unittest.IsolatedAsyncioTestCase):
             await app.workers.wait_for_complete()
             self.assertEqual(app.screen.query_one('#store-description', Static).content, 'New description')
             self.assertEqual(runtime.calls, [])
+
+
+class PageLayoutTests(unittest.IsolatedAsyncioTestCase):
+    async def test_artwork_and_release_tab_remain_stable_under_refresh(self):
+        from unittest.mock import patch
+        from PIL import Image
+        from images import TerminalImage
+        class ArtworkRuntime(Runtime):
+            def listing(self, command, *args):
+                return [dict(GAME, banner='https://example.test/banner.png')]
+            def details(self, address):
+                return dict(GAME, banner='https://example.test/banner.png',
+                            installed_version={'event_id': 'a' * 64, 'created_at': 1700000000})
+        with patch('images.ImageCache.load', return_value=Image.new('RGB', (32, 16))) as load:
+            app = Kiosk(ArtworkRuntime())
+            async with app.run_test(size=(80, 28)) as pilot:
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                await pilot.click(app.query(GameCard)[0])
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                page = app.screen
+                image = page.query_one('#store-art', TerminalImage)
+                if image._load_task:
+                    await image._load_task
+                self.assertEqual(image.state, 'ready')
+                self.assertLessEqual(page.query_one('#store-actions').region.bottom,
+                                     page.query_one('#store-tabs').region.y)
+                page.query_one('#store-releases-tab', Button).focus()
+                await pilot.press('enter')
+                page.update_page()
+                self.assertTrue(page.query_one('#store-release').display)
+                self.assertFalse(page.query_one('#store-description').display)
+                self.assertEqual(page.detail_tab, 'releases')
+                self.assertLess(page.query_one('#store-tabs').region.bottom, 28)
+                # Card and details each own a renderer; refresh adds no load.
+                before = load.call_count
+                for _ in range(10):
+                    page.update_page()
+                self.assertEqual(load.call_count, before)
+
+    async def test_saved_game_waits_for_download_and_reports_window_service_failure(self):
+        runtime = Runtime()
+        runtime.installed = [GAME]
+        app = Kiosk(runtime)
+        async with app.run_test(size=(80, 28)) as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            await pilot.click(app.query(GameCard)[0])
+            await app.workers.wait_for_complete()
+            page = app.screen
+            # The account knows this game while its local download is pending.
+            app.library = object()
+            app.saved = [GAME['address']]
+            app.installed.clear()
+            app.windows_available = False
+            page.update_page()
+            self.assertTrue(page.query_one('#play', Button).disabled)
+            self.assertIn('Downloading', str(page.query_one('#store-state', Static).content))
+            self.assertIn('Running status unavailable', str(page.query_one('#store-state', Static).content))
+            self.assertEqual(str(page.query_one('#play', Button).label), 'Play Now')
+            self.assertEqual(runtime.calls, [])
+            app.library = None

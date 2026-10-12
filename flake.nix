@@ -286,8 +286,14 @@
           assert !live.kwak.nostrUsers.enable;
           assert self.nixosConfigurations.physical.config.services.greetd.enable;
           pkgs.runCommand "kwak-iso-config-check" { } "touch $out";
-        # App unit tests run in each package's checkPhase.
-        inherit (pkgs) kwak-settings kwak-kiosk kwak-userd kwak-greeter;
+        # Normal packages never run our suites; checks opt in explicitly.
+        kwak-settings = pkgs.kwak-settings.override { doCheck = true; };
+        kwak-kiosk = pkgs.kwak-kiosk.override { doCheck = true; };
+        kwak-userd = pkgs.kwak-userd.override { doCheck = true; };
+        kwak-greeter = pkgs.kwak-greeter.override { doCheck = true; };
+        kwak-cards = pkgs.kwak-cards.override { doCheck = true; };
+        swipe-cards = pkgs.kwak-cards.skc.override { doCheck = true; };
+        hyprflow = pkgs.hyprflow.override { doCheck = true; };
         window-modes = pkgs.runCommand "kwak-window-modes-check" { nativeBuildInputs = [ pkgs.lua5_5 ]; } ''
           lua ${./tests/window-modes.lua} ${./config/hypr/hyprland.lua}
           touch $out

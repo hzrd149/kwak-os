@@ -88,6 +88,44 @@ class PerformanceTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(len(card.query(TerminalImage)), 0)
                 self.assertTrue(card.query_one(".card-icon").display)
 
+    async def test_latest_rows_reconcile_without_cancelling_mount(self):
+        import asyncio
+        from textual.app import App
+        from textual.containers import Grid
+        class Harness(App):
+            def compose(self):
+                yield Discovery()
+        app = Harness()
+        async with app.run_test(size=(80, 28)) as pilot:
+            browser = app.query_one(Discovery)
+            grid = browser.query_one(Grid)
+            entered, release = asyncio.Event(), asyncio.Event()
+            original_mount = grid.mount
+            mounted = []
+            async def delayed_mount(*widgets, **kwargs):
+                result = await original_mount(*widgets, **kwargs)
+                mounted.extend(widgets)
+                entered.set()
+                await release.wait()
+                return result
+            rows = [(dict(address=str(i), name=f"Game {i}"), "Ready") for i in range(3)]
+            with patch.object(grid, "mount", side_effect=delayed_mount) as mount:
+                browser.show_games(rows, "0")
+                await asyncio.wait_for(entered.wait(), 2)
+                latest = [(game, "Running") for game, _ in rows]
+                browser.show_games(latest, "1")
+                browser.show_games(latest, "2")
+                browser.request_focus_selected()
+                release.set()
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                mount.assert_called_once()
+            self.assertEqual(browser.cards, mounted)
+            self.assertEqual([card.status for card in browser.cards], ["Running"] * 3)
+            self.assertEqual(browser.signature, latest)
+            self.assertIs(browser.selected_card, mounted[2])
+            self.assertIs(app.focused, mounted[2])
+
     async def test_refresh_below_modal_updates_launcher_without_crashing(self):
         from textual.screen import ModalScreen
         from textual.widgets import Static

@@ -1,4 +1,5 @@
 {
+  doCheck ? false,
   lib,
   python3Packages,
   source,
@@ -9,6 +10,8 @@ python3Packages.buildPythonPackage {
   pname = "nostr-swipe-cards";
   version = "0.1.0-${source.shortRev or "dirty"}";
   pyproject = true;
+  inherit doCheck;
+  doInstallCheck = doCheck;
   src = source;
 
   build-system = [ python3Packages.hatchling ];
@@ -20,7 +23,7 @@ python3Packages.buildPythonPackage {
     "tests/test_nip46.py"
     "tests/test_tui.py"
   ];
-  pythonImportsCheck = [
+  pythonImportsCheck = lib.optionals doCheck [
     "skc_cards"
     "skc_cards.nbunksec"
     "skc_cards.msr90"

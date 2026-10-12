@@ -51,7 +51,7 @@ class KioskTests(unittest.IsolatedAsyncioTestCase):
             for button in nav.query(Button):
                 self.assertGreater(button.region.width, 0)
                 self.assertLessEqual(button.region.right, nav.region.right)
-            self.assertIs(app.focused, app.query_one("#games", OptionList))
+            self.assertIsInstance(app.focused, GameCard)
 
     async def test_selection_survives_reordering_and_search_enter_focuses_games(self):
         other = {**GAME, "address": "35129:" + "b" * 64 + ":second", "name": "Second"}
@@ -69,7 +69,7 @@ class KioskTests(unittest.IsolatedAsyncioTestCase):
             search.focus()
             search.value = "second"
             await pilot.press("enter")
-            self.assertIs(app.focused, app.query_one("#games", OptionList))
+            self.assertIsInstance(app.focused, GameCard)
             self.assertEqual(app.selected()["address"], other["address"])
 
     async def test_empty_library_suggestions_trial_then_saved_download(self):
@@ -129,6 +129,7 @@ class KioskTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(runtime.calls), 2)
             app.query_one("#games", OptionList).highlighted = 0
             await pilot.pause()
+            await pilot.click(app.query_one(GameCard))
             await pilot.click("#play")
             await app.workers.wait_for_complete()
             self.assertEqual(runtime.calls[-1][0], "launch")

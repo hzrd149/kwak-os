@@ -39,7 +39,10 @@ jobs:
         run: |
           nix build --no-link --no-update-lock-file \
             .#checks.x86_64-linux.desktop-config .#checks.x86_64-linux.iso-config \
-            .#checks.x86_64-linux.kwak-settings .#checks.x86_64-linux.installer
+            .#checks.x86_64-linux.kwak-settings .#checks.x86_64-linux.kwak-kiosk \
+            .#checks.x86_64-linux.kwak-userd .#checks.x86_64-linux.kwak-greeter \
+            .#checks.x86_64-linux.kwak-cards .#checks.x86_64-linux.swipe-cards \
+            .#checks.x86_64-linux.hyprflow .#checks.x86_64-linux.installer
           nix flake check --no-build --no-update-lock-file
 
       - name: Build the live ISO

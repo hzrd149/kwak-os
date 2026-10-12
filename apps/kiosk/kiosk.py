@@ -17,8 +17,7 @@ from textual.widgets import Button, Footer, Input, OptionList, Static
 from textual.widgets.option_list import Option
 from settings import THEME, SettingsScreen
 from library import Library
-from discovery import Discovery, GameCard, artwork
-from images import TerminalImage
+from discovery import Discovery, GameCard
 from game_details import GameDetails
 
 
@@ -123,13 +122,9 @@ class Kiosk(App):
     #sync { height: auto; }
     #search, #discovery-search { margin: 0; }
     #details { height: 1fr; padding: 0 1; }
-    #library-art { height: 5; width: 100%; background: $panel; }
     #game-title { height: auto; color: $primary; text-style: bold; padding: 0 1; }
-    #game-state, #game-author { height: auto; padding: 0 1; }
-    #game-author { color: $foreground 60%; }
+    #game-state { height: auto; padding: 0 1; }
     #game-version { height: auto; margin-bottom: 1; }
-    #detail-tabs { height: 3; }
-    #detail-tabs Button { width: 1fr; min-width: 0; padding: 0 1; margin: 0; }
     #detail { height: auto; margin-bottom: 1; }
     #actions { height: auto; layout: grid; grid-size: 3; grid-gutter: 0 1; }
     #actions Button { width: 100%; margin-right: 0; }
@@ -159,8 +154,7 @@ class Kiosk(App):
         self.details = {}
         self._list_signature = None
         self._selection_signature = None
-        self._library_art_source = None
-        self.detail_tab = "info"
+        self._initial_grid_focus_pending = True
         self.register_theme(THEME)
         self.theme = "kwak"
 
@@ -179,9 +173,7 @@ class Kiosk(App):
                 yield OptionList(id="games")
                 yield Discovery(id="discovery")
                 with Vertical(id="game-panel"):
-                    yield TerminalImage(id="library-art")
                     yield Static("Choose a game", id="game-title", markup=False)
-                    yield Static("", id="game-author", markup=False)
                     yield Static("", id="game-state", markup=False)
                     with Vertical(id="actions"):
                         yield Button("Play", id="play", variant="primary", disabled=True)
@@ -189,9 +181,6 @@ class Kiosk(App):
                         yield Button("Update", id="update", disabled=True)
                         yield Button("Install", id="install", disabled=True)
                         yield Button("Remove", id="remove", disabled=True)
-                    with Horizontal(id="detail-tabs"):
-                        yield Button("Game Info", id="info-tab", variant="primary")
-                        yield Button("Releases", id="releases-tab")
                     with VerticalScroll(id="details"):
                         yield Static("", id="detail", markup=False)
                         yield Static("", id="game-version", markup=False)
@@ -204,11 +193,11 @@ class Kiosk(App):
     def on_mount(self):
         self._launcher_screen = self.screen
         self.launcher_query_one("#discovery-search").display = False
-        self.launcher_query_one("#discovery").display = False
-        self.launcher_query_one("#library-art").display = False
-        self.show_detail_tab()
+        self.launcher_query_one("#discovery").display = True
+        self.launcher_query_one("#games").display = False
+        self.launcher_query_one("#game-panel").display = False
         self.launcher_query_one("#sync").display = self.library is not None
-        self.launcher_query_one("#games", OptionList).focus()
+        self.launcher_query_one("#search", Input).focus()
         self.load()
         self.poll_windows()
         self.set_interval(3, self.poll_windows)
@@ -418,10 +407,10 @@ class Kiosk(App):
         scroll_y = listing.scroll_y
         rows = []
         discovering = self.page == "discover" or self.recommending
-        listing.display = not discovering
+        listing.display = False
         browser = self.launcher_query_one("#discovery", Discovery)
-        browser.display = discovering
-        self.launcher_query_one("#game-panel").display = not discovering
+        browser.display = True
+        self.launcher_query_one("#game-panel").display = False
         self.launcher_query_one("#search").display = self.page != "discover"
         self.launcher_query_one("#discovery-search").display = self.page == "discover"
         self.launcher_query_one("#library-body").set_class(discovering, "discover")
@@ -436,6 +425,10 @@ class Kiosk(App):
                 status = "Download interrupted · Retrying automatically" if game["address"] in self.failed else "Downloading…"
             if game["address"] in self.running:
                 status = "Running"
+            if status == "Ready to play":
+                status = "Installed · Ready to play"
+            if game.get("update_available") or self.installed.get(game["address"], {}).get("update_available"):
+                status += " · Update available"
             rows.append((game | self.details.get(game["address"], {}), status))
         signature = tuple((game["address"], game.get("name") or "Untitled game", status)
                           for game, status in rows)
@@ -451,7 +444,14 @@ class Kiosk(App):
                 listing.scroll_to(y=scroll_y, animate=False)
         self.update_selection()
         selected = self.selected()
-        browser.show_games(rows if discovering else [], selected["address"] if selected else None)
+        browser.show_games(rows, selected["address"] if selected else None)
+        if rows and self._initial_grid_focus_pending:
+            self._initial_grid_focus_pending = False
+            # Enter browsing once the first covers mount, without taking focus
+            # from a user who already started typing or opened another screen.
+            if (self.screen is self._launcher_screen and
+                    self.focused in (None, self.active_search()) and not query):
+                browser.request_focus_selected()
         if isinstance(self.screen, GameDetails):
             self.screen.update_page()
 
@@ -514,7 +514,6 @@ class Kiosk(App):
         discovering = self.page == "discover" or self.recommending
         for control in ("stop", "update", "remove"):
             self.launcher_query_one(f"#{control}", Button).display = not discovering
-        self.show_detail_tab()
         self.launcher_query_one("#remove", Button).disabled = not bool(self.library and game and game["address"] in self.saved)
         self.launcher_query_one("#remove", Button).display = bool(self.library and game and game["address"] in self.saved)
         installed = bool(game and game["address"] in self.installed)
@@ -526,21 +525,6 @@ class Kiosk(App):
         self.launcher_query_one("#update", Button).display = not discovering and update_available
         self.launcher_query_one("#update", Button).disabled = not installed or not update_available or bool(game and game["address"] in self.busy)
         self.launcher_query_one("#game-title", Static).update(game.get("name") or "Untitled game" if game else "Choose a game")
-        creator = (game.get("author_name") or game.get("author")) if game else None
-        author = self.launcher_query_one("#game-author", Static)
-        author.display = bool(creator)
-        author.update("By " + str(creator) if creator else "")
-        # A landscape banner is the best match for the compact hero; retain
-        # the shared HTTPS validator and other metadata artwork fallbacks.
-        source = ((artwork({"image": game.get("banner")}) or artwork(game))
-                  if game and not discovering else None)
-        image = self.launcher_query_one("#library-art", TerminalImage)
-        image.display = bool(source)
-        if source != self._library_art_source:
-            self._library_art_source = source
-            # The widget initializes its placeholder after the first refresh.
-            # Queue behind that initialization and reject superseded selections.
-            image.call_after_refresh(self.apply_library_art, source)
         state = (f"Running · {len(active)} instance(s)" if active else
                  "Downloading…" if game and game["address"] in self.busy else
                  "Unavailable" if game and not game.get("available") else "Installed · Ready to play" if installed else "Available to try or install") if game else ""
@@ -567,18 +551,6 @@ class Kiosk(App):
         self.launcher_query_one("#detail", Static).update(game.get("description") or "No description available yet." if game else
                                                 "Select a game from your library to see its details and controls.")
 
-    def apply_library_art(self, source):
-        if self.is_running and source == self._library_art_source:
-            self.launcher_query_one("#library-art", TerminalImage).set_source(source)
-
-    def show_detail_tab(self):
-        """Keep both detail sections mounted so polls preserve tab and scroll."""
-        info = self.detail_tab == "info"
-        self.launcher_query_one("#detail").display = info
-        self.launcher_query_one("#game-version").display = not info
-        self.launcher_query_one("#info-tab", Button).variant = "primary" if info else "default"
-        self.launcher_query_one("#releases-tab", Button).variant = "default" if info else "primary"
-
     def on_input_changed(self, event):
         if event.input.id in ("search", "discovery-search") and event.input.screen is self._launcher_screen:
             self.render_games()
@@ -586,10 +558,7 @@ class Kiosk(App):
     def on_input_submitted(self, event):
         if event.input.id not in ("search", "discovery-search") or event.input.screen is not self._launcher_screen:
             return
-        if self.page == "discover" or self.recommending:
-            self.launcher_query_one(Discovery).focus_selected()
-        else:
-            self.launcher_query_one("#games", OptionList).focus()
+        self.launcher_query_one(Discovery).request_focus_selected()
 
     def on_option_list_option_highlighted(self):
         self.update_selection()
@@ -598,6 +567,10 @@ class Kiosk(App):
 
     def on_game_card_chosen(self, event):
         event.stop()
+        # A membership reconciliation can queue focus notifications from cards
+        # that have already been replaced or lost focus. Keep the latest intent.
+        if not event.activate and event.card is not self.focused:
+            return
         listing = self.launcher_query_one("#games", OptionList)
         for index in range(listing.option_count):
             if listing.get_option_at_index(index).id == event.card.game["address"]:
@@ -668,15 +641,14 @@ class Kiosk(App):
 
     def on_button_pressed(self, event):
         action = event.button.id
-        if action in ("info-tab", "releases-tab"):
-            self.detail_tab = "info" if action == "info-tab" else "releases"
-            self.show_detail_tab()
-            self.launcher_query_one("#details", VerticalScroll).scroll_home(animate=False)
-        elif action in ("library", "store"):
+        if action in ("library", "store"):
             self.page = "installed" if action == "library" else "discover"
             self.launcher_query_one("#library", Button).variant = "primary" if action == "library" else "default"
             self.launcher_query_one("#store", Button).variant = "primary" if action == "store" else "default"
-            self.games = self.page_cache.get(self.page, [])
+            # Keep the mounted covers while an uncached page loads. An empty
+            # cached page is authoritative; a missing cache is still loading.
+            if self.page in self.page_cache:
+                self.games = self.page_cache[self.page]
             self.render_games()
             self.load(refresh=self.page == "discover", background=bool(self.games))
             if self.page == "installed" and self.games:

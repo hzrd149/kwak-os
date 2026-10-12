@@ -1,0 +1,56 @@
+{
+  "service_ready": true,
+  "sizes": [
+    {
+      "columns": 88,
+      "rows": 33,
+      "installed": 1,
+      "catalog": 110,
+      "navigation": "passed",
+      "search": "passed",
+      "settings": "passed",
+      "library_grid_details": "passed",
+      "discovery_cards": "passed",
+      "details_page": "passed"
+    },
+    {
+      "columns": 100,
+      "rows": 32,
+      "installed": 1,
+      "catalog": 110,
+      "navigation": "passed",
+      "search": "passed",
+      "settings": "passed",
+      "library_grid_details": "passed",
+      "discovery_cards": "passed",
+      "details_page": "passed"
+    },
+    {
+      "columns": 120,
+      "rows": 40,
+      "installed": 1,
+      "catalog": 110,
+      "navigation": "passed",
+      "search": "passed",
+      "settings": "passed",
+      "library_grid_details": "passed",
+      "discovery_cards": "passed",
+      "details_page": "passed"
+    },
+    {
+      "columns": 160,
+      "rows": 50,
+      "installed": 1,
+      "catalog": 110,
+      "navigation": "passed",
+      "search": "passed",
+      "settings": "passed",
+      "library_grid_details": "passed",
+      "discovery_cards": "passed",
+      "details_page": "passed"
+    }
+  ],
+  "overlay_80x28": "passed",
+  "installed_records_unchanged": true,
+  "windows_unchanged": true
+}

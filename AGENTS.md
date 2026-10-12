@@ -12,3 +12,7 @@ and the launcher style and interaction contract in [docs/kiosk.md](docs/kiosk.md
 Use the Python environment exposed by `.#kwak-kiosk.python` to verify Textual
 code against the version packaged by this flake. Preserve unrelated working
 tree changes when making fixes.
+
+Repository test suites run only through explicit flake check targets or direct
+test commands. Normal packages default to `doCheck = false`; do not attach
+automatic test execution to `nix run`, ordinary builds, or system rebuilds.

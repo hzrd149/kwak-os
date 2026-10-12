@@ -201,6 +201,14 @@ nix flake check             # Build and run checks
 nix fmt
 ```
 
+Normal `nix run`, `nix build`, and system rebuilds do not run kwakOS app
+unit tests. Run checks explicitly with `nix flake check`, or select an app:
+
+```sh
+nix build .#checks.x86_64-linux.kwak-kiosk
+nix build .#checks.x86_64-linux.kwak-settings
+```
+
 Update the kwakore runtime to the latest commit, then commit the lockfile:
 
 ```sh

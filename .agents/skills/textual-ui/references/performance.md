@@ -34,3 +34,14 @@ Headless tests validate behavior and cell layout, not terminal graphics protocol
 ## Completion evidence
 
 Report the reproduced trigger, measured cause, changes, relevant tests, before/after results under the same workload, and remaining limits. Keep asynchronous cancellation, stale-result correctness, and widget lifetime checks in the regression coverage.
+
+## Reconciliation lifetime
+
+Use latest-wins cancellation for replaceable read requests, not for a sequence
+of DOM removals and mounts. Cancelling `remove_children()`/`mount()` midway can
+leave an empty or partial tree with a misleading cached signature. Keep desired
+and fully applied snapshots separate, serialize reconciliation in one worker,
+coalesce newer requests, and publish the applied signature only after the DOM
+transaction finishes. Queue focus requests until the latest selection is
+mounted, and respect the owning active screen before moving focus. Test this
+with a gated mount and a newer status/selection request while it waits.

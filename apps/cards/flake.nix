@@ -28,9 +28,10 @@
         };
       });
 
-      # The package runs the unit tests in its checkPhase.
+      # Unit tests run only through this explicit check target.
       checks = forAllSystems (system: {
-        default = self.packages.${system}.default;
+        default = self.packages.${system}.default.override { doCheck = true; };
+        library = self.packages.${system}.default.skc.override { doCheck = true; };
       });
 
       devShells = forAllSystems (

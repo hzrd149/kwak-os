@@ -13,6 +13,13 @@ kwakore as the game service and reuse the existing image cache and settings
 controls. Avoid adding large headings, outer gutters, or decorative panels
 that reduce the browsing area.
 
+My Games also uses a full-width cover grid with a separate game page. Keep the
+primary Play button (which becomes Stop while running) and Update control near
+game identity and status; put Game Info and
+Releases below them. Back restores the originating query, cover selection, and
+scroll position. Do not reinstate a visible library list or an inline details
+sidebar unless the user changes this direction.
+
 Keep routine data refresh invisible: update on tab entry and background
 intervals, preserve existing content, focus, scroll, and form edits, and retry
 temporary failures automatically. Do not add Refresh, Scan, or Check updates

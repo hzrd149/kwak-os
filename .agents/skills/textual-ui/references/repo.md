@@ -17,11 +17,11 @@ Use `$primary`, `$secondary`, `$foreground`, `$background`, `$surface`, `$panel`
 
 Keep the launcher compact while retaining larger primary navigation buttons. Discovery uses a full-width card grid and a dedicated Napplet details/store page; Library and Discovery retain independent search inputs and queries. Click or Enter opens discovery details; Play and Install are explicit actions on that page. Keep library management in My Games. Library selection displays details; Play is explicit. Preserve page-specific behavior rather than making every Enter press launch.
 
-In My Games, put selected-game artwork (when available), title/status, and
-explicit actions above independently scrolling Game Info/Releases content.
-Collapse absent artwork. Keep these sections mounted during refreshes and
-change the image source only when its URL changes. Use real daemon metadata;
-do not invent play-time, social, or achievement data.
+My Games uses the same responsive cover-grid and explicit details-page model.
+The game page keeps artwork/title/status and actions above independently
+scrolling Game Info/Releases content. Back restores the query, selected cover,
+and scroll position. Keep sections mounted during refreshes; update artwork
+only when its URL changes. Do not invent play-time, social, or achievement data.
 
 Render daemon metadata with `markup=False` or structured Rich text. Reuse in-app settings and restore browsing focus on return. Loading and unavailable-service messages should explain the next usable action.
 
@@ -45,3 +45,7 @@ nix run .#kwak-kiosk -- --local
 ```
 
 Local UI is backed by the real daemon: Play/Stop/Install/Update mutate live state. Use fake runtimes for automated action tests. The smoke runner permits read-only requests and compares initial/final installed/running state. Include new files in Nix's Git source when necessary without committing unrelated changes.
+
+Normal `nix run` and `nix build` packages skip repository test suites. Request
+tests explicitly with `nix build .#checks.x86_64-linux.kwak-kiosk` or
+`nix flake check`; do not enable package test phases by default.

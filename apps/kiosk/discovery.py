@@ -116,6 +116,10 @@ class Discovery(VerticalScroll):
         super().__init__(**kwargs)
         self.columns = 2
         self.signature = None
+        self._desired_rows = []
+        self._desired_signature = None
+        self._rebuilding = False
+        self._focus_pending = False
         self.address = None
         self.cards = []
         self.card_indices = {}
@@ -152,16 +156,33 @@ class Discovery(VerticalScroll):
 
     def show_games(self, rows, address):
         self.address = address
-        signature = [(game, status) for game, status in rows]
-        if signature != self.signature:
-            self.signature = signature
-            self.rebuild(rows)
+        # Desired state and mounted state are distinct. Never cancel a DOM
+        # remove/mount transaction halfway through to service a newer snapshot.
+        self._desired_rows = [(dict(game), status) for game, status in rows]
+        self._desired_signature = self._desired_rows
+        if self._desired_signature != self.signature:
+            if not self._rebuilding:
+                self._rebuilding = True
+                self.rebuild()
         else:
             self.select(address)
             self.request_artwork()
 
-    @work(exclusive=True, group="cards")
-    async def rebuild(self, rows):
+    @work(group="cards")
+    async def rebuild(self):
+        try:
+            while self.signature != self._desired_signature:
+                rows = self._desired_rows
+                await self.reconcile(rows)
+                # Publish only a completely mounted snapshot; newer requests
+                # coalesce into the next iteration without losing their cards.
+                self.signature = rows
+        finally:
+            self._rebuilding = False
+        if self._focus_pending:
+            self.request_focus_selected()
+
+    async def reconcile(self, rows):
         grid = self.query_one(Grid)
         cards = list(grid.query(GameCard))
         if [card.game["address"] for card in cards] == [game["address"] for game, _ in rows]:
@@ -180,7 +201,7 @@ class Discovery(VerticalScroll):
         self.query_one("#discovery-empty").display = not bool(rows)
         self.select(self.address)
         if self.display and (focused or getattr(self.app.focused, "id", None) == "store"):
-            self.focus_selected()
+            self._focus_pending = True
         self.request_artwork()
 
     def select(self, address):
@@ -193,6 +214,13 @@ class Discovery(VerticalScroll):
         if card is not None:
             card.add_class("selected")
         self.selected_card = card
+
+    def request_focus_selected(self):
+        """Focus after an in-flight reconciliation, using its latest selection."""
+        self._focus_pending = True
+        if not self._rebuilding and self.cards and self.screen is self.app.screen:
+            self._focus_pending = False
+            self.focus_selected()
 
     def focus_selected(self):
         card = self.cards_by_address.get(self.address) or (self.cards[0] if self.cards else None)
