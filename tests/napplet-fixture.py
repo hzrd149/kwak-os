@@ -53,9 +53,18 @@ def prepare(args):
     relay = f"wss://localhost:{args.relay_port}"
     blossom = f"http://127.0.0.1:{args.blossom_port}"
     upload_server = f"https://localhost:{args.upload_port}"
+    # Use the exact encrypted native sync format; this is test fixture data.
+    import importlib.util
+    source = Path(__file__).resolve().parents[1] / "apps/userd/userd.py"
+    spec = importlib.util.spec_from_file_location("fixture_signer", source)
+    signer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(signer)
+    pubkey = sign(args.nak, "11" * 32, 0, "", [])["pubkey"]
+    payload = {"v": 1, "napplets": [{"address": game["address"], "event_id": event["id"]}
+               for game, event in zip(games[:2], events[:2])] if args.saved else []}
     library = sign(args.nak, "11" * 32, 30078,
-                   json.dumps({"version": 1, "napplets": [game["address"] for game in games[:2]] if args.saved else []}),
-                   [["d", "kwak-napplets"]])
+                   signer.nip44_encrypt("11" * 32, pubkey, json.dumps(payload)),
+                   [["d", "kwak-library"]])
     events.extend([library, sign(args.nak, "11" * 32, 0,
                                json.dumps({"name": "Kiosk Test Player"}), []),
                    sign(args.nak, "11" * 32, 10002, "", [["r", relay]]),
@@ -63,6 +72,7 @@ def prepare(args):
     (directory / "events.json").write_text(json.dumps(events))
     (directory / "kwakore-config.json").write_text(json.dumps({
         "relays": [relay], "blossom_servers": [blossom], "discover_on_user_relays": False,
+        "sync_id": "kwak-library",
         "signer": {"mode": "system", "socket": "/run/kwak-userd.sock"}}))
     metadata = {"relay": relay, "blossom": blossom, "upload_server": upload_server, "games": games,
                 "player_pubkey": library["pubkey"], "storage_key": "kiosk.fixture",

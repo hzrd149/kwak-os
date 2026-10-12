@@ -54,7 +54,7 @@ class ScreenshotTests(ManagerCase):
 
     def test_upload_and_publish_exact_png_with_signed_authorization_and_note(self):
         with patch.object(self.manager, "_screenshot_upload", return_value=self.descriptor) as upload, patch.object(
-            self.manager.library_relays, "publish"
+            self.manager.event_publisher, "publish"
         ) as publish:
             result = self.publish()
         server, data, header = upload.call_args.args
@@ -124,7 +124,7 @@ class ScreenshotTests(ManagerCase):
 
     def test_missing_media_server_does_not_sign_or_publish(self):
         self.nak.events = []
-        with patch.object(self.manager, "_library_sign") as sign:
+        with patch.object(self.manager, "_sign_account_event") as sign:
             with self.assertRaisesRegex(userd.UserError, "media server"):
                 self.publish()
         sign.assert_not_called()
@@ -142,7 +142,7 @@ class ScreenshotTests(ManagerCase):
                            {**self.descriptor, "url": "https://other.example/" + self.blob_hash},
                            {**self.descriptor, "url": "https://["}):
             with patch.object(self.manager, "_screenshot_upload", return_value=descriptor), patch.object(
-                self.manager.library_relays, "publish"
+                self.manager.event_publisher, "publish"
             ) as publish:
                 with self.assertRaisesRegex(userd.UserError, "confirmed"):
                     self.publish()
@@ -150,7 +150,7 @@ class ScreenshotTests(ManagerCase):
 
     def test_failed_publish_ack_is_not_reported_as_success(self):
         with patch.object(self.manager, "_screenshot_upload", return_value=self.descriptor), patch.object(
-            self.manager.library_relays, "publish", side_effect=userd.UserError("No relay acknowledged")
+            self.manager.event_publisher, "publish", side_effect=userd.UserError("No relay acknowledged")
         ):
             with self.assertRaisesRegex(userd.UserError, "acknowledged"):
                 self.publish()
@@ -169,7 +169,7 @@ class ScreenshotTests(ManagerCase):
             return userd.sign_event("11" * 32, template)
         with patch.object(self.nak, "sign", side_effect=sign) as signing, patch.object(
             self.manager, "_screenshot_upload", return_value=self.descriptor
-        ), patch.object(self.manager.library_relays, "publish"):
+        ), patch.object(self.manager.event_publisher, "publish"):
             self.publish()
         self.assertEqual([call.args[0]["kind"] for call in signing.call_args_list], [24242, 1])
 

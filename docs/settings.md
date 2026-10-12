@@ -4,8 +4,30 @@ Open **Settings** inside the game launcher for the category view, or use Wofi
 and **Super+,** for the standalone view. It is a terminal app in a small
 borderless kitty window; run `kwak-settings` in a terminal to use it there instead.
 Choose a window tiling mode with the mouse, or with the arrow keys and Enter. The
-change takes effect immediately and is saved for later sessions. Esc or `q`
-closes it. This app has one setting.
+change takes effect immediately and is saved for later sessions. Escape returns
+to the launcher or closes standalone Settings. Settings also includes sound, network, appearance, and account
+categories.
+
+Category controls have tall, full-width click targets and clear hover/selection
+feedback. The sidebar adapts to terminal width and scrolls when categories do
+not fit. Arrow keys navigate; Enter opens a category; Ctrl+Left returns focus
+to the sidebar. The settings pane scrolls separately.
+
+## Terminal appearance
+
+Choose **Appearance**, then click a theme or select it with the arrow keys and
+Enter. The theme applies immediately throughout the current application and is
+saved for the next launch. Opening or closing embedded Settings preserves the
+active theme; it no longer forces the default green palette.
+
+The launcher, standalone Settings, and game overlay restore the same per-user
+preference from `$XDG_CONFIG_HOME/kwak/textual-theme` (normally
+`~/.config/kwak/textual-theme`). The green `kwak` theme remains the default when
+no valid preference exists. If saving fails, the selected theme stays active
+for this run and Appearance reports that it was not saved; select it again to
+retry. This preference follows the local account's lifetime.
+
+## Window tiling
 
 | Mode | Behavior |
 | --- | --- |

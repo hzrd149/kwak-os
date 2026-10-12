@@ -7,7 +7,7 @@ import struct
 import subprocess
 import time
 import uuid
-from library import account_request
+from settings import account_request, SettingsError
 from overlay import OverlayError
 
 
@@ -111,7 +111,7 @@ class ScreenshotStore:
             raise OverlayError('Screenshot unavailable.') from error
         try:
             return self.request('publish_screenshot', filename=snapshot['filename'], caption=caption, game=snapshot['game'])
-        except (RuntimeError, OSError) as error:
+        except (RuntimeError, OSError, SettingsError) as error:
             setup = 'Add a media server in Settings before publishing screenshots.'
             if str(error) == setup:
                 raise OverlayError(setup + ' Your screenshot is saved.') from error

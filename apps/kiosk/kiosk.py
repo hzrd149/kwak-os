@@ -15,7 +15,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Input, OptionList, Static
 from textual.widgets.option_list import Option
-from settings import THEME, SettingsScreen
+from settings import THEME, SettingsScreen, apply_saved_theme
 from library import Library
 from discovery import Discovery, GameCard
 from game_details import GameDetails
@@ -27,7 +27,7 @@ class RemoveGame(ModalScreen):
 
     def compose(self):
         with Vertical(id="confirm"):
-            yield Static("Remove this game from My Games on every kiosk? Local cached files may remain.")
+            yield Static("Uninstall this game here and on devices sharing this library? Running game windows will close.")
             yield Button("Cancel", id="cancel", variant="primary")
             yield Button("Remove from My Games", id="confirm-remove")
 
@@ -68,7 +68,9 @@ class Runtime:
     def _request(self, *args):
         try:
             result = self.run([os.environ.get("KWAK_CLI", "kwak"), "--json", *args],
-                              capture_output=True, text=True, timeout=190, check=False)
+                              capture_output=True, text=True,
+                              timeout=8 if args and args[0] in ("status", "diagnostics", "settings", "installed", "discover", "detail", "windows") else 190,
+                              check=False)
         except (OSError, subprocess.TimeoutExpired) as error:
             raise RuntimeError("Game service unavailable. Please retry.") from error
         if result.returncode:
@@ -132,10 +134,11 @@ class Kiosk(App):
     #status { height: auto; color: $warning; }
     """
 
-    def __init__(self, runtime=None, library=None):
+    def __init__(self, runtime=None, library=None, local=None):
         super().__init__()
-        self.library = library if library is not None else (Library() if runtime is None else None)
+        self.local = runtime is not None if local is None else local
         self.runtime = runtime or Runtime()
+        self.library = library if library is not None else (Library(self.runtime) if runtime is None else None)
         self.page = "installed"
         self.games = []
         self.page_cache = {}
@@ -190,8 +193,9 @@ class Kiosk(App):
         """Background workers always update the launcher, even below a modal."""
         return self._launcher_screen.query_one(selector, expect_type)
 
-    def on_mount(self):
+    async def on_mount(self):
         self._launcher_screen = self.screen
+        await apply_saved_theme(self)
         self.launcher_query_one("#discovery-search").display = False
         self.launcher_query_one("#discovery").display = True
         self.launcher_query_one("#games").display = False
@@ -293,7 +297,6 @@ class Kiosk(App):
             for address in self.installed:
                 self.failed.pop(address, None)
         self.rebuild_library()
-        self.ensure_downloads()
         if self.recommending and not self.suggestions:
             self.load_suggestions()
 
@@ -324,24 +327,23 @@ class Kiosk(App):
     def recommending(self):
         return bool(self.library and self.library_loaded and not self.saved and self.page == "installed")
 
-    def ensure_downloads(self):
-        if not self.library or not self.local_ready:
-            return
-        for address in self.saved:
-            if address not in self.installed and address not in self.busy and address not in self.failed:
-                self.busy.add(address)
-                self.mutate("install", address)
-
     @work(group="library-changes")
     async def change_library(self, address, action):
+        if address in self.busy:
+            return
+        self.busy.add(address)
+        self.render_games()
+        self.launcher_query_one("#status", Static).update("Installing…" if action == "add" else "Uninstalling…")
         try:
             snapshot = await asyncio.to_thread(self.library.change, address, action)
         except RuntimeError as error:
             self.launcher_query_one("#status", Static).update(str(error))
             return
+        finally:
+            self.busy.discard(address)
+            self.render_games()
         self.show_sync(snapshot)
         self.rebuild_library()
-        self.ensure_downloads()
         self.sync_library()
         if self.recommending and not self.suggestions:
             self.load_suggestions()
@@ -383,7 +385,6 @@ class Kiosk(App):
         self.catalog.update({game["address"]: game for game in games})
         self.rebuild_library()
         self.render_games()
-        self.ensure_downloads()
         if not background and page == "installed":
             self.check_game_updates()
         if background and not recovered:
@@ -658,7 +659,7 @@ class Kiosk(App):
             if game:
                 self.perform_game_action(action, game)
         elif action == "settings":
-            self.push_screen(SettingsScreen(runtime=self.runtime, local=self.library is None, initial="overview"))
+            self.push_screen(SettingsScreen(runtime=self.runtime, local=self.local, initial="overview"))
         elif action in ("session", "workspaces"):
             commands = {"session": ["kwak-session"],
                         "workspaces": ["hyprctl", "eval", "hl.plugin.hyprflow.toggle()"]}
@@ -698,11 +699,12 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="kwakOS game library")
     parser.add_argument("--local", action="store_true",
-                        help="Use this user's kwakore library without kiosk account sync")
+                        help="Use the local user's kwakore library and native sync configuration")
     parser.add_argument("--overlay", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.overlay:
         from overlay import GameOverlay
         GameOverlay().run()
     else:
-        Kiosk(runtime=Runtime() if args.local else None).run()
+        runtime = Runtime()
+        Kiosk(runtime=runtime, library=Library(runtime), local=args.local).run()

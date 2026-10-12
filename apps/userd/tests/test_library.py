@@ -14,23 +14,9 @@ OTHER = "35129:" + "b" * 64 + ":other"
 
 def event(addresses, created_at=None):
     return userd.sign_event("11" * 32, {
-        "kind": 30078, "created_at": created_at or int(time.time()),
-        "tags": [["d", "kwak-napplets"]],
+        "kind": 1, "created_at": created_at or int(time.time()),
+        "tags": [],
         "content": json.dumps({"version": 1, "napplets": addresses})})
-
-
-class RelayMemory:
-    def __init__(self):
-        self.current = event([OTHER])
-        self.fail = False
-        self.published = []
-    def fetch(self, *args):
-        if self.fail:
-            raise userd.UserError("Offline")
-        return self.current
-    def publish(self, relays, pubkey, signer, value):
-        self.published.append(value)
-        self.current = value
 
 
 class LibraryManagerTests(ManagerCase):
@@ -39,38 +25,6 @@ class LibraryManagerTests(ManagerCase):
         self.nak.pubkey = SIGNING_PUBKEY
         token = self.manager.login_nsec("11" * 32)["token"]
         self.manager.redeem(SIGNING_USER, token)
-        self.relays = RelayMemory()
-        self.manager.library_relays = self.relays
-
-    def test_merge_sign_and_remove_with_monotonic_timestamp(self):
-        added = self.manager.update_napplet_library(SIGNING_USER, ADDRESS, "add")
-        self.assertEqual(added["addresses"], [ADDRESS, OTHER])
-        first = self.relays.current
-        self.assertTrue(userd.valid_signed_event(first))
-        self.assertEqual(first["tags"], [["d", "kwak-napplets"]])
-        removed = self.manager.update_napplet_library(SIGNING_USER, OTHER, "remove")
-        self.assertEqual(removed["addresses"], [ADDRESS])
-        self.assertGreater(self.relays.current["created_at"], first["created_at"])
-
-    def test_failed_read_never_publishes_empty_list(self):
-        self.relays.fail = True
-        with self.assertRaises(userd.UserError):
-            self.manager.update_napplet_library(SIGNING_USER, ADDRESS, "add")
-        self.assertEqual(self.relays.published, [])
-
-    def test_unsupported_latest_content_is_not_overwritten(self):
-        self.relays.current = {**event([]), "content": "unknown"}
-        with self.assertRaisesRegex(userd.UserError, "unsupported"):
-            self.manager.update_napplet_library(SIGNING_USER, ADDRESS, "add")
-        self.assertEqual(self.relays.published, [])
-
-    def test_identity_scope_cannot_be_changed_by_request_fields(self):
-        server = userd.Server(self.manager)
-        response = server.dispatch(30000, {"op": "napplet_library", "username": "root"})
-        self.assertEqual(response["addresses"], [OTHER])
-        for uid in (0, 990, 991, 1000):
-            with self.assertRaisesRegex(userd.UserError, "Permission denied"):
-                server.dispatch(uid, {"op": "napplet_library"})
 
     def test_signature_and_address_validation(self):
         signed = event([ADDRESS])
@@ -140,50 +94,6 @@ class LibraryManagerTests(ManagerCase):
 
 
 class WireTests(unittest.TestCase):
-    def test_real_relay_roundtrip_with_authentication(self):
-        from websockets.sync.server import serve
-        stored = [event([OTHER])]
-        auth_events = []
-        failures = []
-        def handler(connection):
-            try:
-                message = json.loads(connection.recv(timeout=3))
-                connection.send(json.dumps(["AUTH", "local-challenge"]))
-                if message[0] == "REQ":
-                    connection.send(json.dumps(["CLOSED", message[1], "auth-required: authenticate"]))
-                else:
-                    connection.send(json.dumps(["OK", message[1]["id"], False, "auth-required: authenticate"]))
-                auth = json.loads(connection.recv(timeout=3))[1]
-                auth_events.append(auth)
-                connection.send(json.dumps(["OK", auth["id"], True, ""]))
-                message = json.loads(connection.recv(timeout=3))
-                if message[0] == "REQ":
-                    connection.send(json.dumps(["EVENT", message[1], stored[0]]))
-                    connection.send(json.dumps(["EOSE", message[1]]))
-                else:
-                    stored[0] = message[1]
-                    connection.send(json.dumps(["OK", stored[0]["id"], True, ""]))
-            except Exception as error:
-                failures.append(error)
-        signer = lambda template: userd.sign_event("11" * 32, template)
-        with serve(handler, "127.0.0.1", 0, compression=None) as server:
-            thread = threading.Thread(target=server.serve_forever, daemon=True)
-            thread.start()
-            relay = f"ws://127.0.0.1:{server.socket.getsockname()[1]}"
-            try:
-                with patch.dict(os.environ, {"no_proxy": "127.0.0.1", "NO_PROXY": "127.0.0.1"}):
-                    transport = userd.LibraryRelays()
-                    self.assertEqual(transport.fetch([relay], SIGNING_PUBKEY, signer)["id"], stored[0]["id"])
-                    replacement = event([ADDRESS, OTHER])
-                    transport.publish([relay], SIGNING_PUBKEY, signer, replacement)
-                    self.assertEqual(transport.fetch([relay], SIGNING_PUBKEY, signer)["id"], replacement["id"])
-            finally:
-                server.shutdown()
-                thread.join(timeout=3)
-        self.assertEqual(failures, [])
-        self.assertEqual(len(auth_events), 3)
-        self.assertTrue(all(userd.valid_signed_event(auth) for auth in auth_events))
-
     def connection(self, event=None):
         class Connection:
             def __init__(self):
@@ -207,25 +117,13 @@ class WireTests(unittest.TestCase):
                 self.closed = True
         return Connection()
 
-    def test_authentication_reissues_subscription_and_requires_eose(self):
-        connection = self.connection()
-        with patch("websocket.create_connection", return_value=connection):
-            result = userd.LibraryRelays().exchange("wss://relay.example", SIGNING_PUBKEY,
-                lambda template: userd.sign_event("11" * 32, template))
-        self.assertEqual(result, [])
-        self.assertEqual([frame[0] for frame in connection.sent], ["REQ", "AUTH", "REQ"])
-        self.assertEqual(connection.sent[1][1]["kind"], 22242)
-        self.assertTrue(connection.closed)
+
+
+
 
     def test_rejected_publication_is_not_reported_as_synced(self):
         connection = self.connection()
         with patch("websocket.create_connection", return_value=connection):
             with self.assertRaisesRegex(userd.UserError, "rejected"):
-                userd.LibraryRelays().exchange("wss://relay.example", SIGNING_PUBKEY, None, event([]))
+                userd.EventPublisher().exchange("wss://relay.example", SIGNING_PUBKEY, None, event([]))
         self.assertTrue(connection.closed)
-
-    def test_all_failed_relays_do_not_look_like_empty_library(self):
-        relays = userd.LibraryRelays()
-        with patch.object(relays, "exchange", side_effect=OSError()):
-            with self.assertRaisesRegex(userd.UserError, "Could not load"):
-                relays.fetch(["wss://relay.example"], SIGNING_PUBKEY, None)

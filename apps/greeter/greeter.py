@@ -675,13 +675,13 @@ class GreeterApp(App):
 class SessionApp(App):
     """The session menu: lock, switch account, log out, or sign out of this computer."""
 
-    TITLES = {"menu": "SESSION", "logout": "LOG OUT", "signout": "SIGN OUT", "sync": "LIBRARY SYNC"}
+    TITLES = {"menu": "SESSION", "logout": "LOG OUT", "signout": "SIGN OUT"}
     CSS = CSS
     ENABLE_COMMAND_PALETTE = False
     BINDINGS = [Binding("escape", "back", "Back")]
 
     def __init__(self, request=client.request, run=subprocess.run, page="menu",
-                 logout=None, library=None):
+                 logout=None):
         super().__init__()
         self.request = request
         self.run_command = run
@@ -689,11 +689,6 @@ class SessionApp(App):
         self.logout_command = logout or shlex.split(os.environ.get("KWAK_LOGOUT", "uwsm stop"))
         # A Nostr account (kept or guest), or None for a local account such as kwak.
         self.account = None
-        if library is None and request is client.request:
-            from library import Library
-            library = Library()
-        self.library = library
-        self.end_action = None
 
     def compose(self):
         with VerticalScroll(id="panel"):
@@ -714,11 +709,6 @@ class SessionApp(App):
                         "affected.", classes="hint")
                     yield buttons("Delete and sign out", "signout-go", back="Cancel",
                                   variant="error")
-                with Vertical(id="sync"):
-                    yield Static("Your game library has changes waiting to sync.", classes="title")
-                    yield Static("Ending this temporary session can lose those changes. You can keep waiting or end the session anyway.", classes="hint")
-                    yield buttons("Wait and retry", "sync-retry", back="Cancel")
-                    yield Button("End session anyway", id="sync-exit", variant="error")
             yield Static(id="status")
         yield Footer()
 
@@ -813,49 +803,9 @@ class SessionApp(App):
         if event.button.has_class("back"):
             self.action_back()
         elif event.button.id == "logout-go":
-            if self.library:
-                self.end_session("logout")
-            else:
-                self.command(self.logout_command)
-        elif event.button.id == "signout-go":
-            if self.library:
-                self.end_session("signout")
-            else:
-                self.sign_out()
-        elif event.button.id == "sync-retry":
-            self.end_session(self.end_action)
-        elif event.button.id == "sync-exit":
-            if self.end_action == "signout":
-                self.show("signout")
-                self.sign_out()
-            else:
-                self.command(self.logout_command)
-
-    @work(exclusive=True, group="end-session")
-    async def end_session(self, action):
-        self.end_action = action
-        if self.library:
-            self.say("Checking library sync…")
-            try:
-                snapshot = await asyncio.to_thread(self.library.snapshot)
-                if snapshot["pending"]:
-                    try:
-                        await asyncio.wait_for(asyncio.to_thread(self.library.sync), timeout=5)
-                    except asyncio.TimeoutError:
-                        pass
-                    snapshot = await asyncio.to_thread(self.library.snapshot)
-                if snapshot["pending"]:
-                    self.show("sync")
-                    return
-            except RuntimeError as error:
-                self.show("sync")
-                self.say(str(error), error=True)
-                return
-        if action == "signout":
-            self.show("signout")
-            self.sign_out()
-        else:
             self.command(self.logout_command)
+        elif event.button.id == "signout-go":
+            self.sign_out()
 
     def command(self, args):
         result = self.run_command(args, check=False)

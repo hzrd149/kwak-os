@@ -32,7 +32,7 @@ discovery and explicitly configure the local Blossom server:
 
 The publisher uses the public test key `33` repeated 32 times. The player uses
 the public test key `11` repeated 32 times. Preparation seeds the player's name,
-relay list and kind-30078 `kwak-napplets` library. `--saved` includes
+relay list and encrypted native kind-30078 `kwak-library` list. `--saved` includes
 `kiosk-heartbeat` and `kiosk-second`; `kiosk-trial` remains absent so Play Now can
 be checked without saved-list or installed-record changes. Omit `--saved` to
 exercise empty-library recommendations. The relay also accepts signed updates
@@ -96,3 +96,5 @@ including on failure. The PNG comparison rejects overlay pixels in the saved
 image. Successful checks and the exact tested package are recorded in
 `runtime.json`, with compositor screenshots beside it. After the harness
 finishes, resume the session checkpoint to test account switching and cleanup.
+
+Fixture preparation uses the kwak-userd Python environment for coincurve and cryptography.

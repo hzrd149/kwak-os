@@ -1,107 +1,48 @@
-"""Per-user cached library and durable, idempotent sync intents shared by TUIs."""
-import contextlib
-import fcntl
-import json
-import os
-from pathlib import Path
-import socket
-import tempfile
-import uuid
+"""Read-only projection of kwakore's native installed-list sync.
 
-
-def account_request(op, **fields):
-    try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
-            connection.settimeout(180)
-            connection.connect("/run/kwak-userd.sock")
-            stream = connection.makefile("rwb")
-            stream.write(json.dumps({"op": op, **fields}).encode() + b"\n")
-            stream.flush()
-            response = json.loads(stream.readline(1 << 22))
-        if not response.get("ok"):
-            raise RuntimeError(response.get("error") or "Account service unavailable.")
-        return response["result"]
-    except (OSError, ValueError, KeyError) as error:
-        raise RuntimeError("Cannot reach your account. Library changes will retry.") from error
+Kwakore owns persistence, relay publication, reconciliation and retry. This
+adapter never writes a second library file or publishes a Nostr library event.
+"""
+import threading
 
 
 class Library:
-    def __init__(self, root=None, request=account_request):
-        self.root = Path(root or Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "kwak/library")
-        self.request = request
+    native = True
 
-    @contextlib.contextmanager
-    def state(self):
-        self.root.mkdir(parents=True, mode=0o700, exist_ok=True)
-        with open(self.root / "state.lock", "a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            path = self.root / "state.json"
-            try:
-                state = json.loads(path.read_text())
-                if not isinstance(state, dict) or not isinstance(state.get("base"), list) or not isinstance(state.get("pending"), list):
-                    raise ValueError()
-            except FileNotFoundError:
-                state = {"base": [], "pending": [], "loaded": False, "name": "", "error": ""}
-            except (ValueError, OSError) as error:
-                raise RuntimeError("Cannot read your cached library; it was not overwritten.") from error
-            before = json.dumps(state, sort_keys=True)
-            yield state
-            if before != json.dumps(state, sort_keys=True):
-                temporary = None
-                try:
-                    with tempfile.NamedTemporaryFile(mode="w", dir=self.root, delete=False) as stream:
-                        temporary = Path(stream.name)
-                        json.dump(state, stream)
-                        stream.flush()
-                        os.fsync(stream.fileno())
-                    os.replace(temporary, path)
-                finally:
-                    if temporary:
-                        temporary.unlink(missing_ok=True)
-
-    @staticmethod
-    def desired(state):
-        addresses = set(state["base"])
-        for item in state["pending"]:
-            if item["action"] == "add":
-                addresses.add(item["address"])
-            else:
-                addresses.discard(item["address"])
-        return sorted(addresses)
+    def __init__(self, runtime):
+        self.runtime = runtime
+        self.lock = threading.Lock()
+        self.current = {"addresses": [], "loaded": False, "pending": [], "error": ""}
 
     def snapshot(self):
-        with self.state() as state:
-            return {**state, "addresses": self.desired(state)}
+        return {**self.current, "addresses": list(self.current["addresses"])}
+
+    def sync(self):
+        if not self.lock.acquire(blocking=False):
+            return self.snapshot()
+        try:
+            try:
+                games = self.runtime.listing("installed")
+                diagnostics = self.runtime.request("diagnostics")
+                status = diagnostics.get("install_sync", {})
+                result = status.get("last_result")
+                error = {
+                    "failed": "Library sync will retry in kwakore. See Settings.",
+                    "unreadable": "kwakore could not read the synced library. See Settings.",
+                    "skipped": "Sign in to sync your library.",
+                }.get(result, "")
+                self.current = {"addresses": [game["address"] for game in games],
+                                "loaded": bool(games) or not status.get("enabled") or result == "ok",
+                                "pending": [], "error": error,
+                                "install_sync": status}
+            except RuntimeError as error:
+                self.current = {**self.current, "error": str(error)}
+            return self.snapshot()
+        finally:
+            self.lock.release()
 
     def change(self, address, action):
         if action not in ("add", "remove"):
             raise RuntimeError("Invalid library action.")
-        with self.state() as state:
-            if len(state["pending"]) >= 500:
-                raise RuntimeError("Too many changes waiting to sync. Retry sync first.")
-            state["pending"].append({"id": uuid.uuid4().hex, "address": address, "action": action})
-        return self.snapshot()
-
-    def sync(self):
-        self.root.mkdir(parents=True, mode=0o700, exist_ok=True)
-        with open(self.root / "sync.lock", "a") as lock:
-            # Another overlay/library already owns the retry; never pile up waiters.
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                return self.snapshot()
-            try:
-                remote = self.request("napplet_library")
-                with self.state() as state:
-                    state.update(base=remote["addresses"], loaded=True, name=remote.get("name", ""), error="")
-                # Bound each pass. New user actions are picked up by the next pass.
-                for intent in self.snapshot()["pending"]:
-                    remote = self.request("update_napplet_library", address=intent["address"], action=intent["action"])
-                    with self.state() as state:
-                        state["base"] = remote["addresses"]
-                        state["pending"] = [item for item in state["pending"] if item["id"] != intent["id"]]
-                        state["error"] = ""
-            except RuntimeError as error:
-                with self.state() as state:
-                    state["error"] = str(error)
-            return self.snapshot()
+        self.runtime.request("install", address) if action == "add" else self.runtime.request("uninstall", "--yes", address)
+        return self.sync()

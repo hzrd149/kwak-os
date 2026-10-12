@@ -36,6 +36,7 @@ in
       enable = true;
       # Identity users are created at sign-in, so they are matched by group.
       groups = [ "nostr" ];
+      settings.sync_id = "kwak-library";
       settings.signer = {
         mode = "system";
         socket = "/run/kwak-userd.sock";

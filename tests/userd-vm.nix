@@ -104,20 +104,9 @@ pkgs.testers.runNixOSTest {
         assert call("login_nsec", nsec=sk)["password_required"]
         machine.fail(f"runuser -u greeter -- ${client} unlock '{{\"username\": \"{user}\", \"password\": \"nope\"}}'")
 
-    with subtest("the saved library follows the identity through an acknowledged NIP-78 event"):
+    with subtest("restore the signer before testing session pause"):
         token = call("unlock", username=user, password="hunter2")["token"]
         call("redeem", as_user="root", username=user, token=token)
-        address = "35129:" + "a" * 64 + ":game"
-        assert call("napplet_library", as_user=user)["addresses"] == []
-        saved = call("update_napplet_library", as_user=user, address=address, action="add")
-        assert saved["addresses"] == [address]
-        machine.succeed("systemctl restart kwak-userd.service")
-        # Reads remain possible when the session signer has not been restored;
-        # this local relay does not require AUTH. The list must come from relay.
-        assert call("napplet_library", as_user=user)["addresses"] == [address]
-        token = call("unlock", username=user, password="hunter2")["token"]
-        call("redeem", as_user="root", username=user, token=token)
-        assert call("update_napplet_library", as_user=user, address=address, action="remove")["addresses"] == []
 
     with subtest("game freezing leaves the user manager responsive and resumes progress"):
         machine.succeed(f"loginctl enable-linger {user}")
@@ -201,8 +190,6 @@ pkgs.testers.runNixOSTest {
         assert call("list_known")[0]["method"] == "bunker"
         machine.fail(f"runuser -u greeter -- ${client} unlock '{{\"username\": \"{user}\"}}'")
         assert pam(user, call("unlock", username=user, password="bunkerpw")["token"]) == 0
-        address = "35129:" + "b" * 64 + ":bunker-game"
-        assert call("update_napplet_library", as_user=user, address=address, action="add")["addresses"] == [address]
 
     with subtest("only root can remove an identity"):
         machine.fail(f"runuser -u greeter -- ${client} remove '{{\"username\": \"{user}\"}}'")

@@ -14,7 +14,7 @@ from textual.app import App
 from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Static, TextArea
-from settings import THEME
+from settings import THEME, apply_saved_theme
 from kiosk import Runtime
 
 if __name__ == "__main__":
@@ -258,7 +258,8 @@ class GameOverlay(App):
             yield Static("", id="menu-status", markup=False)
         yield Footer()
 
-    def on_mount(self):
+    async def on_mount(self):
+        await apply_saved_theme(self)
         self.query_one("#resume", Button).focus()
         self.check_game()
 

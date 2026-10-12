@@ -20,7 +20,7 @@ from settings import SettingsScreen
 
 class ReadOnlyRuntime(Runtime):
     def request(self, *args):
-        if not args or args[0] not in {"status", "installed", "windows", "discover", "detail"}:
+        if not args or args[0] not in {"status", "diagnostics", "installed", "windows", "discover", "detail"}:
             raise RuntimeError("Local smoke test permits only read operations")
         return super().request(*args)
 

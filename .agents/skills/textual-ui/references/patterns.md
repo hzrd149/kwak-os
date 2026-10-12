@@ -28,6 +28,12 @@ The example bounds request duration but intentionally omits a production queue/c
 
 ## Lists
 
+For tall category targets, wrap option prompts in Rich `Padding` so measured
+row height and hit regions include the whitespace. Vertical component CSS
+padding alone produced incorrect option heights in the packaged Textual 8.2.6.
+Test clicks in the padded area, keyboard scrolling, and narrow terminal sizes;
+see `CategoryNavigationTests` in `apps/settings/tests/test_settings.py`.
+
 Use stable option IDs and `replace_option_prompt` for status-only changes instead of clearing all options. Restore highlighted address after membership changes. [OptionList](https://textual.textualize.io/widgets/option_list/).
 
 Choose `DataTable` for dense tabular data and update cells by stable row/column keys. [DataTable](https://textual.textualize.io/widgets/data_table/).

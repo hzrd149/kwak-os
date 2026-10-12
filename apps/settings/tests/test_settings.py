@@ -15,6 +15,22 @@ settings = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(settings)
 
 
+# Headless settings tests must never read or write the invoking user's preferences.
+def setUpModule():
+    global _config_directory, _config_environment
+    _config_directory = tempfile.TemporaryDirectory()
+    _config_environment = patch.dict(settings.os.environ, {
+        "HOME": _config_directory.name,
+        "XDG_CONFIG_HOME": str(Path(_config_directory.name) / "config"),
+    })
+    _config_environment.start()
+
+
+def tearDownModule():
+    _config_environment.stop()
+    _config_directory.cleanup()
+
+
 class Desktop:
     def __init__(self, mode="kwassik"):
         self.mode = mode
@@ -331,6 +347,9 @@ class AutomaticSettingsTests(unittest.IsolatedAsyncioTestCase):
                 app.query_one(settings.TabbedContent).active = 'profile'
                 await pilot.pause()
                 await app.workers.wait_for_complete()
+                # Finish tab-entry reads before mutating the remote fixture.
+                await pilot.pause()
+                await app.workers.wait_for_complete()
                 name = app.query_one('#profile-name')
                 name.value = 'My draft'
                 name.focus()
@@ -346,6 +365,109 @@ class AutomaticSettingsTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(app.query_one('#relay-list').text, 'wss://my-draft')
                 self.assertEqual(app.query_one('#media-list').text, 'https://new')
                 self.assertEqual(app.query_one('#account-password').value, 'private-password')
+
+
+class ThemePreferenceTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        environment = patch.dict(settings.os.environ, {"XDG_CONFIG_HOME": self.directory.name})
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def app(self, **kwargs):
+        return settings.SettingsApp(settings.ModeController(run=Desktop()), **kwargs)
+
+    async def test_settings_screen_preserves_host_theme_without_saving(self):
+        from textual.app import App
+        app = App()
+        app.theme = "textual-light"
+        async with app.run_test(size=(80, 36)) as pilot:
+            await app.push_screen(settings.SettingsScreen(settings.ModeController(run=Desktop()), initial="appearance"))
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            self.assertEqual(app.theme, "textual-light")
+            choices = app.screen.query_one("#themes")
+            self.assertEqual(choices.get_option_at_index(choices.highlighted).id, app.theme)
+            self.assertFalse(settings.theme_preference_path().exists())
+            await pilot.press("escape")
+            await pilot.pause()
+            self.assertEqual(app.theme, "textual-light")
+
+    async def test_selection_saves_and_restores_across_restart(self):
+        app = self.app(initial="appearance")
+        async with app.run_test(size=(80, 36)) as pilot:
+            await app.workers.wait_for_complete()
+            choices = app.query_one("#themes")
+            choices.highlighted = app.theme_names.index("textual-light")
+            choices.focus()
+            await pilot.press("enter")
+            await app.workers.wait_for_complete()
+            self.assertEqual(app.theme, "textual-light")
+            self.assertEqual(settings.theme_preference_path().read_text(), "textual-light\n")
+            self.assertEqual(settings.theme_preference_path().stat().st_mode & 0o777, 0o600)
+        restarted = self.app(initial="appearance")
+        async with restarted.run_test(size=(80, 36)) as pilot:
+            await restarted.workers.wait_for_complete()
+            self.assertEqual(restarted.theme, "textual-light")
+
+    async def test_invalid_saved_theme_falls_back_without_rewriting(self):
+        path = settings.theme_preference_path()
+        path.parent.mkdir(parents=True)
+        path.write_text("not-a-theme")
+        app = self.app(initial="appearance")
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            self.assertEqual(app.theme, "kwak")
+            self.assertEqual(path.read_text(), "not-a-theme")
+
+    async def test_failed_save_keeps_previous_file_and_reports_unsaved_theme(self):
+        settings.save_theme_preference("kwak")
+        app = self.app(initial="appearance")
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            with patch.object(settings.os, "replace", side_effect=OSError("disk full")):
+                app.select_theme("textual-light")
+                await app.workers.wait_for_complete()
+            self.assertEqual(app.theme, "textual-light")
+            self.assertEqual(settings.theme_preference_path().read_text(), "kwak\n")
+            self.assertIn("not saved", str(app.query_one("#theme-status").render()))
+            self.assertFalse(app.query_one("#themes").disabled)
+            self.assertEqual(list(settings.theme_preference_path().parent.glob(".textual-theme-*")), [])
+
+
+class CategoryNavigationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_large_click_targets_and_all_categories_reachable_on_small_screens(self):
+        for size in ((40, 12), (60, 20), (80, 28), (88, 33), (120, 40)):
+            app = settings.SettingsApp(settings.ModeController(run=Desktop()))
+            async with app.run_test(size=size) as pilot:
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                categories = app.query_one('#categories')
+                panel = app.query_one('#panel')
+                self.assertGreaterEqual(categories.region.width, 16)
+                self.assertLessEqual(categories.region.width, 24)
+                self.assertGreaterEqual(panel.region.width, 18)
+                self.assertLessEqual(categories.region.right, panel.region.x)
+                self.assertLessEqual(panel.region.right, size[0])
+                categories.focus()
+                await pilot.press('home')
+                await pilot.pause()
+                # Hit the blank padding below a label, not its text line.
+                await pilot.click('#categories', offset=(2, 3))
+                await pilot.pause()
+                self.assertEqual(app.query_one(settings.TabbedContent).active, 'overview')
+                await pilot.click('#categories', offset=(2, 6))
+                await pilot.pause()
+                self.assertEqual(app.query_one(settings.TabbedContent).active, 'sound')
+                categories.focus()
+                await pilot.press('end', 'enter')
+                await pilot.pause()
+                self.assertEqual(app.query_one(settings.TabbedContent).active, 'media_servers')
+                self.assertGreater(categories.scroll_y, 0 if size[1] <= 28 else -1)
+                await pilot.resize_terminal(80, 28)
+                await pilot.pause()
+                self.assertEqual(app.query_one(settings.TabbedContent).active, 'media_servers')
 
 
 if __name__ == "__main__":

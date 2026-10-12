@@ -53,8 +53,7 @@ Discovery may read configured relays and update kwakore's catalog cache.
 The overlay test checks its empty-target menu; game-specific actions and
 compositor integration still need the graphical kiosk tests.
 
-For an interactive library against the local runtime, without the kiosk's
-account service or automatic saved-library downloads:
+For an interactive library against the local runtime, using the local daemon’s native library and sync configuration:
 
 ```sh
 nix run .#kwak-kiosk -- --local
@@ -65,7 +64,7 @@ avoids needing Nix graphics drivers on a non-NixOS host. The interactive
 mode supports normal local Install and Play actions when selected. `KWAK_CLI`
 can select another CLI binary. The packaged
 `result-kiosk/bin/kwak-kiosk` runs the full signed-in kiosk flow and therefore
-also needs `kwak-userd` for synced account-library operations.
+uses `kwak-userd` as the system signer for native kwakore sync.
 
 The agreed experience is a public kiosk: swipe a Nostr card, see your game
 library immediately, download missing games concurrently, and play each when
@@ -94,8 +93,7 @@ Kwakore keeps the installed release until an explicit update. Its public CLI
 and control protocol currently do not support choosing an older release or
 setting a version pin. The launcher displays known releases but cannot yet
 restore a particular release on another kiosk. That requires a version-targeted
-install/update operation in kwakore and extending the synced library format
-to carry the chosen release. Social sections can be added to the details pane
+install/update operation in kwakore. Native sync already carries installed release pins. Social sections can be added to the details pane
 when the runtime exposes them.
 
 `apps/kiosk` provides My Games, Find Games, local search, paginated catalog
@@ -156,66 +154,34 @@ The local [real-game fixture](../tests/napplet-fixture.md) includes a trusted
 HTTPS Blossom upload endpoint and media-server event, allowing screenshot
 publication tests without posting to external servers.
 
-## Synced library and session pause
+## Native library sync and session pause
 
-The account service reads and publishes NIP-78 kind 30078 with
-`tags: [["d", "kwak-napplets"]]` and JSON content
-`{"version":1,"napplets":["35129:PUBLIC_KEY:IDENTIFIER"]}`. The list contains
-canonical game addresses, never machine paths or download status. It uses the
-user's NIP-65 write relays and configured fallback relays. Reads validate event
-IDs/signatures and select the latest event, breaking timestamp ties by lowest
-ID. Unsupported content stops mutation rather than being overwritten. The
-service remembers validated events during the session to avoid regressing to
-an older relay copy. Writes merge one addition/removal into the latest fetched
-list under a per-user lock, sign with the session identity, and require at least
-one relay OK. NIP-42 challenges are signed by that same identity.
+Kwakore owns the installed library and all cross-device syncing. Kiosk accounts
+use `settings.sync_id = "kwak-library"` with the existing system signer. Local
+launches use the local daemon's signer and sync settings. To join the same
+library on another machine, use the same identity and run
+`kwak settings set sync_id kwak-library` there.
 
-`apps/kiosk/library.py` stores a private cached list and pending delta queue
-under `$XDG_STATE_HOME/kwak/library`. Short file locks protect changes from
-multiple interfaces; a separate nonblocking sync lock serializes network
-retries. Acknowledgments clear only the matching intent, preserving new changes
-made while publication was underway. The kiosk retries every 30 seconds.
-A failed initial read is a loading/error state, not an empty library. Cached
-and pending game rows remain usable when the network fails.
+The daemon encrypts its kind 30078 list to the account using NIP-44, includes
+pinned versions, merges on first activation, follows remote changes, and retries
+in the background. Installation, updates and uninstallation go through kwakore.
+Removal uninstalls on participating devices and closes affected game windows.
+Play Now remains a trial. The launcher reads installed games and `install_sync`
+diagnostics; it does not publish lists, persist sync intents, or reconcile
+remote downloads. Routine UI polling only reads daemon state.
 
-My Games uses this saved list, shows missing games immediately, downloads them
-concurrently, enables Play after installation completes, and exposes failed
-installs with automatic retry. The store offers Play Now and Install. Removal is explicitly confirmed and changes the saved list everywhere;
-it leaves downloaded cache files alone. The session menu attempts pending sync
-for five seconds before offering Wait and retry or End session anyway. Ending
-a temporary account still uses the existing deletion lifecycle.
+The former plaintext `kwak-napplets` event and
+`$XDG_STATE_HOME/kwak/library/state.json` are no longer read or written. They are
+left untouched. Already installed games enter native sync through its first-pass
+merge. Prototype entries that were never installed, including pending additions,
+need to be installed explicitly to join the native library. Do not reuse
+`kwak-napplets` as the native sync ID: its plaintext payload is incompatible with
+the encrypted native format. Native sync does not support NIP-42 AUTH-only relays;
+configure a write relay that accepts the account's sync events without AUTH.
 
-A confirmed empty My Games view shows catalog suggestions with Play Now and
-Add to My Games. Trials leave the saved list unchanged; adding a suggestion
-replaces the recommendations with the saved game and starts its download.
-Failed or unfinished library reads never trigger recommendations. These are
-catalog suggestions, without a popularity ranking or personalized scoring.
-
-Settings has a Sound tab with the current output volume, mute/unmute,
-and five-percent increments. Increases are capped at 100%. Commands run outside
-the UI thread and missing output devices show an actionable error. The package
-includes [WirePlumber's wpctl](https://pipewire.pages.freedesktop.org/wireplumber/man/wpctl.html)
-on its executable path.
-
-The Network tab shows adapter status, scans Wi-Fi, and connects to open or
-personal WPA networks. It creates an in-memory profile restricted to the user,
-with autoconnect disabled. Credentials use a private transient password file,
-which is removed after activation; passwords never enter command arguments or
-displayed errors. Enterprise/WEP/OWE networks require administrator setup.
-Account publishing credentials appear only on the account tabs.
-
-After 600 seconds without input, hypridle asks the account service to open the
-switch greeter for the requesting user's visible session. Switching away freezes
-`kwakore.service` through its user's systemd manager; this suspends the runtime
-and game descendants while keeping the compositor, card service, signer service,
-and user manager responsive. Swiping back or returning from the switch greeter
-thaws the service before activating the session. Paused games retain memory;
-freezing is suspension, not eviction. Freeze/thaw failures are logged in the
-account service journal. Overlay focus loss remains separate from idle suspension.
-
-Protocol references: [NIP-78](https://github.com/nostr-protocol/nips/blob/master/78.md),
-[NIP-42](https://github.com/nostr-protocol/nips/blob/master/42.md), and
-[systemd freezer commands](https://github.com/systemd/systemd/blob/main/man/systemctl.xml).
+Session exit no longer runs a separate launcher sync pass. Kwakore owns sync
+until its service stops; ending a temporary account retains the existing deletion
+lifecycle. Account signing and screenshot publication remain in kwak-userd.
 
 ## Remaining rollout and hardware checks
 
@@ -238,8 +204,8 @@ the existing Lua workspace tests validate configuration integration.
 
 Build with `nix build .#kwak-kiosk .#checks.x86_64-linux.desktop-config
 .#checks.x86_64-linux.window-modes`. The store now labels saved additions Add to My Games. The NixOS userd VM
-test additionally checks relay-backed library persistence through daemon restart
-and a real user-service freezer/thaw cycle.
+test checks identity signing and a real user-service freezer/thaw cycle.
+Native library reconciliation is owned and tested by the pinned kwakore dependency.
 
 Validated on 2026-10-11: 171 app tests, flake evaluation, compositor config
 verification, workspace tests, and all 11 NixOS lifecycle subtests passed. The

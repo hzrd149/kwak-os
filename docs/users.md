@@ -150,12 +150,12 @@ finishes a saved account's deletion if sign-out was interrupted by a restart.
 
 ## Napplets
 
-New Nostr sessions open **My Games**. The library follows your identity using
-a NIP-78 `kwak-napplets` event; missing games download automatically. **Find
-Games** offers **Play Now** for a temporary launch and **Add to My Games** to
-save a game. Removing a game updates your library everywhere without clearing
-local cached files. Offline changes retry in the background. Ending a session
-with pending changes offers a retry or an explicit exit without saving them.
+New Nostr sessions open **My Games**. Kwakore syncs the installed library
+with the same Nostr identity and `sync_id = "kwak-library"` across devices,
+using an encrypted list with pinned versions. **Find Games** offers **Play Now**
+for a trial and **Install** to add a game. Removing a game uninstalls it on
+participating devices and closes its running windows. Kwakore handles syncing
+and retries in the background; the launcher displays its installed library.
 
 The library stays on desktop one. The Windows key opens a game overlay with
 Resume, Exit Game, Back to Library, screenshots, Hyprflow, Settings and Session.

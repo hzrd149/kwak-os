@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 
 from rich.text import Text
+from rich.padding import Padding
 from textual import work
 from textual.app import App
 from textual.binding import Binding
@@ -182,6 +183,43 @@ THEME = Theme(
 )
 
 
+def theme_preference_path():
+    config_home = os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config"
+    return Path(config_home) / "kwak" / "textual-theme"
+
+
+def read_theme_preference():
+    try:
+        return theme_preference_path().read_text().strip()
+    except (OSError, UnicodeError):
+        return "kwak"
+
+
+def save_theme_preference(theme):
+    """Atomically replace this account's preference without leaving partial files."""
+    path = theme_preference_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", dir=path.parent,
+                                         prefix=".textual-theme-", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(theme + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+async def apply_saved_theme(app):
+    """Register the shared palette and restore a validated per-account theme."""
+    app.register_theme(THEME)
+    saved = await asyncio.to_thread(read_theme_preference)
+    app.theme = saved if saved in app.available_themes else "kwak"
+
+
 class AudioController:
     def __init__(self, run=subprocess.run):
         self.run = run
@@ -309,11 +347,18 @@ class SettingsView:
     CSS = """
     Screen { background: $background; color: $foreground; }
     #settings-shell { height: 1fr; padding: 1; }
-    #categories { width: 20; height: 1fr; border: solid $primary; margin-right: 1; }
+    #categories { width: 30%; min-width: 16; max-width: 24; height: 1fr;
+                  border: solid $primary; margin-right: 1; padding: 0; }
+    #categories > .option-list--option { padding: 0; }
+    #categories > .option-list--option-hover { background: $primary 12%; }
+    #categories:focus > .option-list--option-highlighted { background: $primary 30%; }
     #panel { width: 1fr; height: 1fr; padding: 0 1; background: $surface; }
     .title { text-style: bold; color: $primary; }
     .hint { color: $foreground 70%; margin-bottom: 1; }
     #modes { height: auto; }
+    #themes { height: 10; }
+    #theme-status { height: auto; }
+    #theme-status.error { color: $error; }
     OptionList > .option-list--option-highlighted { background: $primary 25%; }
     #status { margin-top: 1; color: $foreground 70%; height: auto; }
     #status.error { color: $error; }
@@ -329,7 +374,7 @@ class SettingsView:
     #networks { height: 8; }
     """
     CATEGORIES = (("overview", "Game center"), ("sound", "Sound"),
-                  ("network", "Network"), ("window", "Display & windows"),
+                  ("network", "Network"), ("appearance", "Appearance"), ("window", "Display & windows"),
                   ("profile", "Profile"), ("relays", "Relays"),
                   ("media_servers", "Media servers"))
     ENABLE_COMMAND_PALETTE = False
@@ -350,13 +395,13 @@ class SettingsView:
 
     def compose(self):
         with Horizontal(id="settings-shell"):
-            yield OptionList(*(Option(label, id=key) for key, label in self.CATEGORIES), id="categories")
+            yield OptionList(*(Option(Padding(Text(label), (1, 1)), id=key) for key, label in self.CATEGORIES), id="categories")
             with VerticalScroll(id="panel") as panel:
                 with TabbedContent(initial=self.initial):
                     with TabPane("Game center", id="overview"):
                         yield Static("KWAK OS / GAME CENTER", classes="title")
                         yield Static("Browse Napplet games in Find Games, add them to My Games, and launch them through kwakore.", classes="hint")
-                        yield Static("Local library" if self.local else "Kiosk account library · sync across kiosks", markup=False)
+                        yield Static("kwakore library · native sync follows this account’s configuration", markup=False)
                         yield Static("Checking game service…", id="runtime-status", markup=False)
                     with TabPane("Sound", id="sound"):
                         yield Static("Game volume", classes="title")
@@ -372,6 +417,11 @@ class SettingsView:
                         yield Input(placeholder="Wi-Fi password", password=True, id="wifi-password")
                         with Horizontal(id="network-buttons"):
                             yield Button("Connect", id="network-connect", disabled=True)
+                    with TabPane("Appearance", id="appearance"):
+                        yield Static("Terminal theme", classes="title")
+                        yield Static("Select a theme with Enter or a click. It applies throughout the launcher and is saved for this account.", classes="hint")
+                        yield OptionList(id="themes")
+                        yield Static("", id="theme-status", markup=False)
                     with TabPane("Window", id="window"):
                         yield Static("Window tiling mode", classes="title")
                         yield Static("Choose how your windows use the workspace.", classes="hint")
@@ -395,15 +445,23 @@ class SettingsView:
                     yield Button("Close", id="close")
         yield Footer()
 
-    def on_mount(self):
-        self.app.register_theme(THEME)
-        self.app.theme = "kwak"
+    async def on_mount(self):
+        if isinstance(self, App):
+            await apply_saved_theme(self.app)
+        elif THEME.name not in self.app.available_themes:
+            self.app.register_theme(THEME)
+        themes = self.query_one("#themes", OptionList)
+        self.theme_names = sorted(self.app.available_themes, key=lambda name: (name != "kwak", name))
+        themes.add_options(Option(name, id=name) for name in self.theme_names)
+        themes.highlighted = self.theme_names.index(self.app.theme)
+        self.query_one("#theme-status", Static).update(f"Current theme: {self.app.theme}")
         self.query_one("#categories", OptionList).highlighted = [key for key, _ in self.CATEGORIES].index(self.initial)
         self.update_tab_controls()
         self.load()
         self.load_account()
         self.update_audio()
-        self.update_network()
+        if self.initial == "network":
+            self.update_network("scan")
         self.update_runtime()
         self.set_interval(15, self.refresh_active_category)
         if self.initial != "window":
@@ -412,7 +470,7 @@ class SettingsView:
     def update_tab_controls(self):
         active = self.query_one(TabbedContent).active
         self.query_one("#account-password", Input).display = active in ("profile", "relays", "media_servers")
-        self.query_one("#status", Static).display = active not in ("sound", "network", "overview")
+        self.query_one("#status", Static).display = active not in ("sound", "network", "overview", "appearance")
 
     def on_tabbed_content_tab_activated(self, event):
         self.update_tab_controls()
@@ -463,7 +521,12 @@ class SettingsView:
             result = await asyncio.to_thread(self.runtime.request, "status")
             ready = result.get("health", {}).get("ready", False)
             games = await asyncio.to_thread(self.runtime.listing, "installed")
-            status.update(("kwakore ready" if ready else "kwakore is not ready. Check the daemon.") + f"\n{len(games)} installed games on this system.")
+            diagnostics = await asyncio.to_thread(self.runtime.request, "diagnostics")
+            sync = diagnostics.get("install_sync", {})
+            sync_text = "Native library sync: " + ("enabled" if sync.get("enabled") else "off")
+            if sync.get("last_result"):
+                sync_text += " · " + sync["last_result"]
+            status.update(("kwakore ready" if ready else "kwakore is not ready. Check the daemon.") + f"\n{len(games)} installed games on this system.\n{sync_text}")
         except RuntimeError as error:
             status.update(str(error))
 
@@ -549,11 +612,35 @@ class SettingsView:
         if event.option_list.id == "categories":
             self.query_one(TabbedContent).active = event.option.id
             return
+        if event.option_list.id == "themes":
+            self.select_theme(event.option.id)
+            return
         if event.option_list.id == "networks":
             self.query_one("#wifi-password", Input).focus()
             return
         if event.option.id != self.current:
             self.apply(event.option.id)
+
+    @work(group="theme-save")
+    async def select_theme(self, theme):
+        if theme not in self.app.available_themes:
+            return
+        choices = self.query_one("#themes", OptionList)
+        if choices.disabled:
+            return
+        choices.disabled = True
+        status = self.query_one("#theme-status", Static)
+        self.app.theme = theme
+        status.set_class(False, "error")
+        status.update(f"Saving {theme}…")
+        try:
+            await asyncio.to_thread(save_theme_preference, theme)
+            status.update(f"{theme} is active. Saved for next time.")
+        except OSError as error:
+            status.set_class(True, "error")
+            status.update(f"{theme} is active for this session, but was not saved: {error}. Select it again to retry.")
+        finally:
+            choices.disabled = False
 
     @work(exclusive=True, group="mode")
     async def apply(self, mode):

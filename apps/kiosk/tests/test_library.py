@@ -1,54 +1,76 @@
-import tempfile
 import unittest
 from library import Library
 
 ADDRESS = "35129:" + "a" * 64 + ":game"
-OTHER = "35129:" + "b" * 64 + ":other"
+
+
+class Runtime:
+    def __init__(self):
+        self.games = []
+        self.calls = []
+        self.offline = False
+        self.result = "ok"
+
+    def listing(self, command):
+        if self.offline:
+            raise RuntimeError("Daemon unavailable")
+        return self.games
+
+    def request(self, *args):
+        self.calls.append(args)
+        if args[0] == "diagnostics":
+            return {"install_sync": {"enabled": True, "last_result": self.result}}
+        self.games = [{"address": ADDRESS}] if args[0] == "install" else []
+        return {}
 
 
 class LibraryTests(unittest.TestCase):
-    def setUp(self):
-        self.directory = tempfile.TemporaryDirectory()
-        self.addCleanup(self.directory.cleanup)
+    def test_changes_use_native_install_and_uninstall(self):
+        runtime = Runtime()
+        library = Library(runtime)
+        self.assertEqual(library.change(ADDRESS, "add")["addresses"], [ADDRESS])
+        self.assertEqual(library.change(ADDRESS, "remove")["addresses"], [])
+        self.assertIn(("install", ADDRESS), runtime.calls)
+        self.assertIn(("uninstall", "--yes", ADDRESS), runtime.calls)
+        self.assertTrue(all(call[0] in ("install", "uninstall", "diagnostics") for call in runtime.calls))
 
-    def test_offline_intents_survive_restart_without_erasing_base(self):
-        def offline(*args, **kwargs):
-            raise RuntimeError("Network unavailable")
-        library = Library(self.directory.name, offline)
-        with library.state() as state:
-            state.update(base=[OTHER], loaded=True)
+    def test_daemon_failure_preserves_last_observed_library(self):
+        runtime = Runtime()
+        library = Library(runtime)
         library.change(ADDRESS, "add")
-        snapshot = Library(self.directory.name, offline).sync()
-        self.assertEqual(snapshot["addresses"], [ADDRESS, OTHER])
-        self.assertEqual(len(snapshot["pending"]), 1)
-        self.assertEqual(snapshot["base"], [OTHER])
+        runtime.offline = True
+        result = library.sync()
+        self.assertEqual(result["addresses"], [ADDRESS])
+        self.assertEqual(result["error"], "Daemon unavailable")
 
-    def test_remote_merge_removes_only_acknowledged_intent(self):
-        library = None
-        def request(op, **kwargs):
-            if op == "napplet_library":
-                return {"addresses": [OTHER], "name": "Player"}
-            # A second UI queues a new intent while publication is in flight.
-            library.change(OTHER, "remove")
-            return {"addresses": [ADDRESS, OTHER]}
-        library = Library(self.directory.name, request)
+    def test_initial_failure_is_not_empty_library(self):
+        runtime = Runtime()
+        runtime.offline = True
+        self.assertFalse(Library(runtime).sync()["loaded"])
+
+    def test_sync_failure_does_not_hide_installed_games(self):
+        runtime = Runtime()
+        runtime.games = [{"address": ADDRESS}]
+        runtime.result = "unreadable"
+        result = Library(runtime).sync()
+        self.assertEqual(result["addresses"], [ADDRESS])
+        self.assertIn("could not read", result["error"])
+        self.assertEqual(result["pending"], [])
+
+    def test_first_native_sync_does_not_look_like_an_empty_library(self):
+        runtime = Runtime()
+        runtime.result = None
+        result = Library(runtime).sync()
+        self.assertFalse(result["loaded"])
+        runtime.games = [{"address": ADDRESS}]
+        self.assertTrue(Library(runtime).sync()["loaded"])
+
+    def test_snapshot_and_overlapping_refresh_never_wait_for_daemon(self):
+        runtime = Runtime()
+        library = Library(runtime)
         library.change(ADDRESS, "add")
-        snapshot = library.sync()
-        self.assertEqual(snapshot["addresses"], [ADDRESS])
-        self.assertEqual(snapshot["pending"][0]["action"], "remove")
-
-    def test_failed_initial_fetch_does_not_become_empty_library(self):
-        def request(*args, **kwargs):
-            raise RuntimeError("Retry")
-        library = Library(self.directory.name, request)
-        snapshot = library.sync()
-        self.assertFalse(snapshot["loaded"])
-        self.assertEqual(snapshot["error"], "Retry")
-
-    def test_corrupt_cache_is_not_overwritten(self):
-        from pathlib import Path
-        path = Path(self.directory.name) / "state.json"
-        path.write_text("broken")
-        with self.assertRaises(RuntimeError):
-            Library(self.directory.name).change(ADDRESS, "add")
-        self.assertEqual(path.read_text(), "broken")
+        calls = list(runtime.calls)
+        with library.lock:
+            self.assertEqual(library.snapshot()["addresses"], [ADDRESS])
+            self.assertEqual(library.sync()["addresses"], [ADDRESS])
+        self.assertEqual(runtime.calls, calls)
