@@ -1,6 +1,6 @@
 -- kwakOS / Hyprland 0.56.2
 -- System fallback: ~/.config/hypr/hyprland.lua takes precedence.
-hl.monitor({ output = "", mode = kwak_monitor_mode or "preferred", position = "auto", scale = "auto" })
+hl.monitor({ output = "", mode = kwak_monitor_mode or "preferred", position = "auto", scale = tonumber(kwak_monitor_scale) or kwak_monitor_scale or "auto" })
 
 local layouts = { kwassik = "monocle", master = "master", dwindle = "dwindle", scrolling = "scrolling" }
 local mode = "kwassik"

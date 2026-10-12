@@ -1,6 +1,7 @@
-# Window tiling settings
+# Settings
 
-Open **Settings** from Wofi, or press **Super+,**. It is a terminal app in a small
+Open **Settings** inside the game launcher for the category view, or use Wofi
+and **Super+,** for the standalone view. It is a terminal app in a small
 borderless kitty window; run `kwak-settings` in a terminal to use it there instead.
 Choose a window tiling mode with the mouse, or with the arrow keys and Enter. The
 change takes effect immediately and is saved for later sessions. Esc or `q`

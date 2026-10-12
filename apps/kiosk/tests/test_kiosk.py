@@ -163,5 +163,61 @@ class KioskTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Retry", str(app.query_one("#status", Static).render()))
 
 
+class IntegratedSettingsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_settings_stays_inside_launcher_and_preserves_library(self):
+        from unittest.mock import patch
+        from settings import SettingsScreen, SettingsError
+        from textual.widgets import TabbedContent
+        runtime = FakeRuntime()
+        app = Kiosk(runtime)
+        for size in ((80, 28), (110, 36)):
+            app = Kiosk(runtime)
+            with patch('settings.account_request', side_effect=SettingsError('Account service unavailable')):
+                async with app.run_test(size=size) as pilot:
+                    await app.workers.wait_for_complete()
+                    app.query_one('#search', Input).value = 'Green'
+                    await pilot.pause()
+                    app.query_one('#games', OptionList).highlighted = 0
+                    await pilot.click('#settings')
+                    await app.workers.wait_for_complete()
+                    await pilot.pause()
+                    self.assertIsInstance(app.screen, SettingsScreen)
+                    screen = app.screen
+                    categories = screen.query_one('#categories', OptionList)
+                    panel = screen.query_one('#panel')
+                    self.assertLessEqual(categories.region.right, panel.region.x)
+                    self.assertGreater(panel.region.width, 30)
+                    self.assertEqual(screen.query_one(TabbedContent).active, 'overview')
+                    for index, (category, _) in enumerate(screen.CATEGORIES):
+                        categories.highlighted = index
+                        categories.focus()
+                        await pilot.press('enter')
+                        await pilot.pause()
+                        self.assertEqual(screen.query_one(TabbedContent).active, category)
+                    screen.query_one('#account-password', Input).value = 'secret'
+                    await pilot.press('escape')
+                    await pilot.pause()
+                    self.assertNotIsInstance(app.screen, SettingsScreen)
+                    self.assertEqual(app.query_one('#search', Input).value, 'Green')
+                    self.assertEqual(app.selected()['address'], GAME['address'])
+                    self.assertEqual(runtime.calls, [('status',)] * (1 if size == (80, 28) else 2))
+
+    async def test_service_failure_is_visible_without_closing_settings(self):
+        from unittest.mock import patch
+        from settings import SettingsError
+        class OfflineRuntime(FakeRuntime):
+            def request(self, *args):
+                raise RuntimeError('Game service unavailable. Please retry.')
+        app = Kiosk(OfflineRuntime())
+        with patch('settings.account_request', side_effect=SettingsError('No account')):
+            async with app.run_test(size=(80, 28)) as pilot:
+                await app.workers.wait_for_complete()
+                await pilot.click('#settings')
+                await app.workers.wait_for_complete()
+                self.assertIn('retry', str(app.screen.query_one('#runtime-status', Static).render()))
+                await pilot.click('#close')
+                self.assertEqual(app.page, 'installed')
+
+
 if __name__ == "__main__":
     unittest.main()

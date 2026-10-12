@@ -16,8 +16,9 @@ from rich.text import Text
 from textual import work
 from textual.app import App
 from textual.binding import Binding
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import Horizontal, VerticalScroll, Vertical
 from textual.theme import Theme
+from textual.screen import Screen
 from textual.widgets import Button, Footer, Input, OptionList, Static, TabbedContent, TabPane, TextArea
 from textual.widgets.option_list import Option
 
@@ -301,38 +302,45 @@ class NetworkController:
         return self.status()
 
 
-class SettingsApp(App):
-    """Choose the window tiling mode; a mode is applied as soon as it is chosen."""
+class SettingsView:
+    """Shared settings controls for the launcher and standalone application."""
 
     TITLE = "Settings"
     CSS = """
-    Screen { align: center middle; background: $background; }
-    #panel {
-        width: 100%; max-width: 72; height: auto; max-height: 100%;
-        border: heavy $primary; border-title-align: left; padding: 1 2;
-        scrollbar-size-vertical: 1;
-        background: $surface;
-    }
+    Screen { background: $background; color: $foreground; }
+    #settings-shell { height: 1fr; padding: 1; }
+    #categories { width: 20; height: 1fr; border: solid $primary; margin-right: 1; }
+    #panel { width: 1fr; height: 1fr; padding: 0 1; background: $surface; }
     .title { text-style: bold; color: $primary; }
     .hint { color: $foreground 70%; margin-bottom: 1; }
-    OptionList { height: auto; max-height: 100%; border: none; padding: 0; background: $surface; }
+    #modes { height: auto; }
     OptionList > .option-list--option-highlighted { background: $primary 25%; }
-    #status { margin-top: 1; color: $foreground 70%; }
+    #status { margin-top: 1; color: $foreground 70%; height: auto; }
     #status.error { color: $error; }
-    #buttons { height: auto; align-horizontal: right; margin-top: 1; }
-    Button { border: none; height: 1; min-width: 10; margin-left: 2; }
-    TabbedContent { height: auto; max-height: 100%; }
+    #buttons { height: 3; margin-top: 1; }
+    Button { min-width: 8; margin-right: 1; }
+    TabbedContent { height: auto; }
+    TabbedContent > ContentTabs { display: none; }
     TabPane { padding: 1 0; height: auto; }
     Input { margin-bottom: 1; }
     TextArea { height: 9; margin-bottom: 1; }
-    #audio-buttons, #network-buttons { height: 3; }
-    #networks { max-height: 8; }
+    #audio-buttons, #network-buttons { height: auto; layout: grid; grid-size: 2; grid-gutter: 0 1; }
+    #audio-buttons Button, #network-buttons Button { width: 1fr; }
+    #networks { height: 8; }
     """
+    CATEGORIES = (("overview", "Game center"), ("sound", "Sound"),
+                  ("network", "Network"), ("window", "Display & windows"),
+                  ("profile", "Profile"), ("relays", "Relays"),
+                  ("media_servers", "Media servers"))
     ENABLE_COMMAND_PALETTE = False
-    BINDINGS = [Binding("escape,q", "quit", "Close")]
+    BINDINGS = [Binding("escape", "close_settings", "Back", priority=True),
+                Binding("ctrl+left", "categories", "Categories")]
 
-    def __init__(self, controller=None, audio=None, network=None):
+    def __init__(self, controller=None, audio=None, network=None, runtime=None, local=False, initial="window"):
         super().__init__()
+        self.runtime = runtime
+        self.local = local
+        self.initial = initial
         self.controller = controller or ModeController()
         self.current = None
         self.account = None
@@ -341,64 +349,109 @@ class SettingsApp(App):
         self.networks = []
 
     def compose(self):
-        with VerticalScroll(id="panel") as panel:
-            panel.border_title = "SETTINGS"
-            with TabbedContent(initial="window"):
-                with TabPane("Sound", id="sound"):
-                    yield Static("Game volume", classes="title")
-                    yield Static("Reading volume…", id="volume", markup=False)
-                    with Horizontal(id="audio-buttons"):
-                        yield Button("− 5%", id="audio-down")
-                        yield Button("+ 5%", id="audio-up")
-                        yield Button("Mute", id="audio-mute")
-                        yield Button("Refresh", id="audio-refresh")
-                with TabPane("Network", id="network"):
-                    yield Static("Reading connections…", id="network-status", markup=False)
-                    yield Static("Wi-Fi changes affect this kiosk. Passwords are not saved.", classes="hint")
-                    yield OptionList(id="networks")
-                    yield Input(placeholder="Wi-Fi password", password=True, id="wifi-password")
-                    with Horizontal(id="network-buttons"):
-                        yield Button("Scan", id="network-scan")
-                        yield Button("Connect", id="network-connect", disabled=True)
-                with TabPane("Window", id="window"):
-                    yield Static("Window tiling mode", classes="title")
-                    yield Static("Choose how your windows use the workspace.", classes="hint")
-                    yield OptionList(id="modes", disabled=True)
-                with TabPane("Profile", id="profile"):
-                    for field, label in PROFILE_FIELDS:
-                        yield Static(label)
-                        yield Input(id=f"profile-{field}")
-                    yield Button("Publish profile", id="save-profile", disabled=True)
-                with TabPane("Relays", id="relays"):
-                    yield Static("One relay per line. Add read or write for a single direction.", classes="hint")
-                    yield TextArea(id="relay-list")
-                    yield Button("Publish relays", id="save-relays", disabled=True)
-                with TabPane("Media servers", id="media_servers"):
-                    yield Static("Blossom servers, one HTTPS URL per line.", classes="hint")
-                    yield TextArea(id="media-list")
-                    yield Button("Publish media servers", id="save-media_servers", disabled=True)
-            yield Input(placeholder="Account password or nsec to publish", password=True, id="account-password")
-            yield Static("Reading desktop settings…", id="status")
-            with Horizontal(id="buttons"):
-                yield Button("Close", id="close")
+        with Horizontal(id="settings-shell"):
+            yield OptionList(*(Option(label, id=key) for key, label in self.CATEGORIES), id="categories")
+            with VerticalScroll(id="panel") as panel:
+                with TabbedContent(initial=self.initial):
+                    with TabPane("Game center", id="overview"):
+                        yield Static("KWAK OS / GAME CENTER", classes="title")
+                        yield Static("Browse Napplet games in Find Games, add them to My Games, and launch them through kwakore.", classes="hint")
+                        yield Static("Local library" if self.local else "Kiosk account library · sync across kiosks", markup=False)
+                        yield Static("Checking game service…", id="runtime-status", markup=False)
+                        yield Button("Refresh service", id="runtime-refresh", disabled=self.runtime is None)
+                    with TabPane("Sound", id="sound"):
+                        yield Static("Game volume", classes="title")
+                        yield Static("Reading volume…", id="volume", markup=False)
+                        with Horizontal(id="audio-buttons"):
+                            yield Button("− 5%", id="audio-down")
+                            yield Button("+ 5%", id="audio-up")
+                            yield Button("Mute", id="audio-mute")
+                            yield Button("Refresh", id="audio-refresh")
+                    with TabPane("Network", id="network"):
+                        yield Static("Reading connections…", id="network-status", markup=False)
+                        yield Static("Wi-Fi changes affect this kiosk. Passwords are not saved.", classes="hint")
+                        yield OptionList(id="networks")
+                        yield Input(placeholder="Wi-Fi password", password=True, id="wifi-password")
+                        with Horizontal(id="network-buttons"):
+                            yield Button("Scan", id="network-scan")
+                            yield Button("Connect", id="network-connect", disabled=True)
+                    with TabPane("Window", id="window"):
+                        yield Static("Window tiling mode", classes="title")
+                        yield Static("Choose how your windows use the workspace.", classes="hint")
+                        yield OptionList(id="modes", disabled=True)
+                    with TabPane("Profile", id="profile"):
+                        for field, label in PROFILE_FIELDS:
+                            yield Static(label)
+                            yield Input(id=f"profile-{field}")
+                        yield Button("Publish profile", id="save-profile", disabled=True)
+                    with TabPane("Relays", id="relays"):
+                        yield Static("One relay per line. Add read or write for a single direction.", classes="hint")
+                        yield TextArea(id="relay-list")
+                        yield Button("Publish relays", id="save-relays", disabled=True)
+                    with TabPane("Media servers", id="media_servers"):
+                        yield Static("Blossom servers, one HTTPS URL per line.", classes="hint")
+                        yield TextArea(id="media-list")
+                        yield Button("Publish media servers", id="save-media_servers", disabled=True)
+                yield Input(placeholder="Account password or nsec to publish", password=True, id="account-password")
+                yield Static("Reading desktop settings…", id="status")
+                with Horizontal(id="buttons"):
+                    yield Button("Close", id="close")
         yield Footer()
 
     def on_mount(self):
-        self.register_theme(THEME)
-        self.theme = "kwak"
+        self.app.register_theme(THEME)
+        self.app.theme = "kwak"
+        self.query_one("#categories", OptionList).highlighted = [key for key, _ in self.CATEGORIES].index(self.initial)
         self.update_tab_controls()
         self.load()
         self.load_account()
         self.update_audio()
         self.update_network()
+        self.update_runtime()
+        if self.initial != "window":
+            self.action_categories()
 
     def update_tab_controls(self):
         active = self.query_one(TabbedContent).active
         self.query_one("#account-password", Input).display = active in ("profile", "relays", "media_servers")
-        self.query_one("#status", Static).display = active not in ("sound", "network")
+        self.query_one("#status", Static).display = active not in ("sound", "network", "overview")
 
     def on_tabbed_content_tab_activated(self, event):
         self.update_tab_controls()
+        self.query_one("#categories", OptionList).highlighted = [key for key, _ in self.CATEGORIES].index(event.tabbed_content.active)
+
+    def on_input_changed(self, event):
+        event.stop()
+
+    def on_input_submitted(self, event):
+        event.stop()
+
+    def on_option_list_option_highlighted(self, event):
+        event.stop()
+
+    def action_categories(self):
+        self.query_one("#categories", OptionList).focus()
+
+    def action_close_settings(self):
+        self.exit()
+
+    @work(exclusive=True, group="runtime")
+    async def update_runtime(self):
+        status = self.query_one("#runtime-status", Static)
+        if self.runtime is None:
+            status.update("Open Settings from the game center to check kwakore. Desktop and account controls are available in the categories on the left.")
+            return
+        button = self.query_one("#runtime-refresh", Button)
+        button.disabled = True
+        try:
+            result = await asyncio.to_thread(self.runtime.request, "status")
+            ready = result.get("health", {}).get("ready", False)
+            games = await asyncio.to_thread(self.runtime.listing, "installed")
+            status.update(("kwakore ready" if ready else "kwakore is not ready. Check the daemon.") + f"\n{len(games)} installed games on this system.")
+        except RuntimeError as error:
+            status.update(str(error))
+        finally:
+            button.disabled = False
 
     @work(exclusive=True, group="audio")
     async def update_audio(self, action="refresh"):
@@ -457,10 +510,17 @@ class SettingsApp(App):
         self.show_modes()
         modes = self.query_one("#modes", OptionList)
         modes.disabled = False
-        modes.focus()
+        if self.initial == "window":
+            modes.focus()
+        else:
+            self.action_categories()
         self.say("Choose a mode to apply it. Your choice is saved for next time.")
 
     def on_option_list_option_selected(self, event):
+        event.stop()
+        if event.option_list.id == "categories":
+            self.query_one(TabbedContent).active = event.option.id
+            return
         if event.option_list.id == "networks":
             self.query_one("#wifi-password", Input).focus()
             return
@@ -488,8 +548,11 @@ class SettingsApp(App):
         modes.focus()
 
     def on_button_pressed(self, event):
+        event.stop()
         if event.button.id == "close":
-            self.exit()
+            self.action_close_settings()
+        elif event.button.id == "runtime-refresh":
+            self.update_runtime()
         elif event.button.id and event.button.id.startswith("network-"):
             self.update_network(event.button.id.removeprefix("network-"))
         elif event.button.id and event.button.id.startswith("audio-"):
@@ -552,6 +615,18 @@ class SettingsApp(App):
             self.say(f"Published to {len(result['relays'])} relays.")
         except SettingsError as error:
             self.say(str(error), error=True)
+
+
+class SettingsApp(SettingsView, App):
+    BINDINGS = SettingsView.BINDINGS
+
+
+class SettingsScreen(SettingsView, Screen):
+    BINDINGS = SettingsView.BINDINGS
+    def action_close_settings(self):
+        self.query_one("#account-password", Input).value = ""
+        self.query_one("#wifi-password", Input).value = ""
+        self.app.pop_screen()
 
 
 def main():

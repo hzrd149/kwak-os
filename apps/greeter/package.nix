@@ -64,7 +64,7 @@ stdenvNoCC.mkDerivation {
     #!${stdenvNoCC.shell}
     # The greeter user has no writable home for kitty's cache.
     [ -w "\$HOME" ] || export XDG_CACHE_HOME="\$XDG_RUNTIME_DIR/kwak-greeter-cache"
-    exec $kitty --class org.kwak.Greeter --start-as fullscreen -o font_size=14 \\
+    exec $kitty --class org.kwak.Greeter --start-as fullscreen \\
       $out/libexec/kwak-greeter-tui "\$@"
     SH
     # In a terminal, run there; otherwise open a small borderless kitty window.

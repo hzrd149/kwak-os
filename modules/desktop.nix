@@ -23,6 +23,7 @@ let
   keyboardConfig = pkgs.writeText "kwak-keyboard.lua" ''
     kwak_keyboard = { layout = ${builtins.toJSON config.services.xserver.xkb.layout}, variant = ${builtins.toJSON config.services.xserver.xkb.variant} }
     kwak_monitor_mode = ${builtins.toJSON config.kwak.monitorMode}
+    kwak_monitor_scale = ${builtins.toJSON config.kwak.monitorScale}
   '';
 in
 {

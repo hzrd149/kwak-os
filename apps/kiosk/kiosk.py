@@ -14,7 +14,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Input, OptionList, Static
 from textual.widgets.option_list import Option
-from settings import THEME
+from settings import THEME, SettingsScreen
 from library import Library
 
 
@@ -377,8 +377,10 @@ class Kiosk(App):
             if game:
                 address = game["address"]
                 self.push_screen(RemoveGame(), lambda confirmed: self.change_library(address, "remove") if confirmed else None)
-        elif action in ("session", "settings", "workspaces"):
-            commands = {"session": ["kwak-session"], "settings": ["kwak-settings"],
+        elif action == "settings":
+            self.push_screen(SettingsScreen(runtime=self.runtime, local=self.library is None, initial="overview"))
+        elif action in ("session", "workspaces"):
+            commands = {"session": ["kwak-session"],
                         "workspaces": ["hyprctl", "eval", "hl.plugin.hyprflow.toggle()"]}
             self.system_action(commands[action])
 
@@ -393,9 +395,14 @@ class Kiosk(App):
 
 
 if __name__ == "__main__":
-    import sys
-    if "--overlay" in sys.argv:
+    import argparse
+    parser = argparse.ArgumentParser(description="kwakOS game library")
+    parser.add_argument("--local", action="store_true",
+                        help="Use this user's kwakore library without kiosk account sync")
+    parser.add_argument("--overlay", action="store_true", help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if args.overlay:
         from overlay import GameOverlay
         GameOverlay().run()
     else:
-        Kiosk().run()
+        Kiosk(runtime=Runtime() if args.local else None).run()

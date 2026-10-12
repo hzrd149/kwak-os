@@ -7,6 +7,9 @@
   # QEMU's GTK window reports its initial 640x480 size as the guest's
   # preferred mode, overriding xres/yres; request a 4:3 mode explicitly.
   kwak.monitorMode = "1600x1200";
+  # A predictable 1280x960 logical desktop keeps terminal controls readable
+  # when the host scales the QEMU window down to fit its display.
+  kwak.monitorScale = "1.25";
   boot.kernelParams = [ "video=Virtual-1:1600x1200" ];
 
   # This credential is confined to the disposable local VM.

@@ -18,6 +18,13 @@
     description = "Hyprland mode for every output, such as a fixed size for virtual displays.";
   };
 
+  options.kwak.monitorScale = lib.mkOption {
+    type = lib.types.str;
+    default = "auto";
+    example = "1.25";
+    description = "Hyprland output scale; auto uses the monitor's reported density.";
+  };
+
   config = {
     nix.settings.experimental-features = [
       "nix-command"

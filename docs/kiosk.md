@@ -1,5 +1,72 @@
 # Game kiosk implementation
 
+## Terminal images
+
+The kiosk package includes `textual-image` and Pillow, and a reusable
+`TerminalImage` widget in `apps/kiosk/images.py`.
+
+Automatic rendering uses the terminal's supported image protocol; Kitty uses
+pixel graphics, and character rendering provides a fallback. The explicit
+halfcell mode is also useful for headless tests. Import `images` before starting
+the Textual application so terminal detection happens before its input loop.
+See [textual-image's integration documentation](https://github.com/lnqs/textual-image#textual-integration).
+
+Future game cards and screenshot previews can mount `TerminalImage(source)`
+and call `set_source(path_or_https_url)` when selection changes. Loading happens
+off the UI thread, clears the previous picture immediately, and ignores stale
+results. Empty and failed sources show placeholders. HTTPS images are cached
+for one day under `$XDG_CACHE_HOME/kwak/images`, with hashed filenames and atomic
+writes. Downloads are limited to 8 MiB, decoded images to 16 million pixels,
+and previews to 512 pixels per side; animations use their first frame.
+
+This prepares image rendering without changing the library layout. Napplet
+icons still need an explicit source from kwakore's control API; the widget
+does not infer paths or download game artifacts itself.
+
+## Terminal sizing
+
+The library, overlay, Settings, greeter and session dialogs use 18-point
+DejaVu Sans Mono. The VM fixes its 1600×1200 output at scale 1.25, yielding
+a 1280×960 logical desktop instead of relying on virtual monitor density.
+The library fills workspace one; the overlay starts at 80×28 cells and
+scrolls its menu when needed. Physical displays retain automatic scaling.
+Rebuild the VM to apply the display scale and packaged terminal settings.
+
+## Local development with an existing kwakore
+
+The TUIs can run against the current user's installed `kwak`; a VM is not
+required for catalog and runtime integration checks. From the repository root:
+
+```sh
+nix build .#kwak-kiosk -o result-kiosk
+nix eval --raw .#kwak-kiosk.python.outPath > /tmp/kwak-kiosk-python-path
+"$(cat /tmp/kwak-kiosk-python-path)/bin/python3" tests/local-kiosk-smoke.py
+```
+
+The smoke runner uses the real `kwak --json` transport, checks My Games and
+Find Games navigation, pagination and search at several terminal sizes,
+including the VM's approximate 88×33 library and 80×28 overlay. It permits
+only status, installed, windows and discover requests, disables account-library
+sync, isolates screenshot state, and verifies installed records and active
+windows are unchanged. It reports counts rather than personal game details.
+Discovery may read configured relays and update kwakore's catalog cache.
+The overlay test checks its empty-target menu; game-specific actions and
+compositor integration still need the graphical kiosk tests.
+
+For an interactive library against the local runtime, without the kiosk's
+account service or automatic saved-library downloads:
+
+```sh
+nix run .#kwak-kiosk -- --local
+```
+
+When launched from a terminal, this uses that terminal's font settings and
+avoids needing Nix graphics drivers on a non-NixOS host. The interactive
+mode supports normal local Install and Play actions when selected. `KWAK_CLI`
+can select another CLI binary. The packaged
+`result-kiosk/bin/kwak-kiosk` runs the full signed-in kiosk flow and therefore
+also needs `kwak-userd` for synced account-library operations.
+
 The agreed experience is a public kiosk: swipe a Nostr card, see your game
 library immediately, download missing games concurrently, and play each when
 ready. Accounts remain temporary by default, retaining the existing greeter
@@ -243,3 +310,25 @@ A second clean run repeats those checks using **Switch Account** from an
 actual systemd user-manager process. This verifies the narrow UWSM fallback
 when apps lack a login-session ancestor; callers still need to own the visible
 session. [Switch Account receipt](proofs/kiosk-real-games/switch-account.json).
+
+## Settings inside the game center
+
+Choose **Settings** in the launcher to open a full-screen view in the same TUI.
+The category rail on the left contains Game center, Sound, Network, Display &
+windows, Profile, Relays, and Media servers. Select a category with the mouse
+or arrow keys and Enter; **Ctrl+Left** focuses the category rail. **Escape** or
+**Close** returns to your game list with its search and selection preserved.
+
+Game center checks the real kwakore service and counts installed games; Refresh
+service retries an unavailable daemon. Sound uses PipeWire, Wi-Fi uses
+NetworkManager, and window modes use the active Hyprland session. Profile,
+relay, and Blossom changes use the kiosk account service and its existing
+publish flow. These controls report unavailable services when run on a host
+without the corresponding desktop or kiosk account service. Local mode uses
+the current user's kwakore library and does not enable kiosk account sync.
+
+Run locally with `nix run .#kwak-kiosk -- --local`. On the destination kwakOS
+system, run `kwak-kiosk` after rebuilding the system with this source. The
+standalone `kwak-settings` command shares the same category view and controls.
+The game runtime remains in kwakore; this UI does not change its daemon
+configuration or expose unsupported runtime options.
