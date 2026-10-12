@@ -358,7 +358,6 @@ class SettingsView:
                         yield Static("Browse Napplet games in Find Games, add them to My Games, and launch them through kwakore.", classes="hint")
                         yield Static("Local library" if self.local else "Kiosk account library · sync across kiosks", markup=False)
                         yield Static("Checking game service…", id="runtime-status", markup=False)
-                        yield Button("Refresh service", id="runtime-refresh", disabled=self.runtime is None)
                     with TabPane("Sound", id="sound"):
                         yield Static("Game volume", classes="title")
                         yield Static("Reading volume…", id="volume", markup=False)
@@ -366,14 +365,12 @@ class SettingsView:
                             yield Button("− 5%", id="audio-down")
                             yield Button("+ 5%", id="audio-up")
                             yield Button("Mute", id="audio-mute")
-                            yield Button("Refresh", id="audio-refresh")
                     with TabPane("Network", id="network"):
                         yield Static("Reading connections…", id="network-status", markup=False)
                         yield Static("Wi-Fi changes affect this kiosk. Passwords are not saved.", classes="hint")
                         yield OptionList(id="networks")
                         yield Input(placeholder="Wi-Fi password", password=True, id="wifi-password")
                         with Horizontal(id="network-buttons"):
-                            yield Button("Scan", id="network-scan")
                             yield Button("Connect", id="network-connect", disabled=True)
                     with TabPane("Window", id="window"):
                         yield Static("Window tiling mode", classes="title")
@@ -408,6 +405,7 @@ class SettingsView:
         self.update_audio()
         self.update_network()
         self.update_runtime()
+        self.set_interval(15, self.refresh_active_category)
         if self.initial != "window":
             self.action_categories()
 
@@ -419,6 +417,26 @@ class SettingsView:
     def on_tabbed_content_tab_activated(self, event):
         self.update_tab_controls()
         self.query_one("#categories", OptionList).highlighted = [key for key, _ in self.CATEGORIES].index(event.tabbed_content.active)
+        self.refresh_active_category()
+
+    def worker_running(self, group):
+        return any(worker.node is self and worker.group == group and not worker.is_finished
+                   for worker in self.workers)
+
+    def refresh_active_category(self):
+        if not self.is_mounted or not self.app.is_running or self.app.screen is not self.screen:
+            return
+        active = self.query_one(TabbedContent).active
+        if active == "overview" and not self.worker_running("runtime"):
+            self.update_runtime()
+        elif active == "sound" and not self.worker_running("audio"):
+            self.update_audio()
+        elif active == "network" and not self.worker_running("network"):
+            self.update_network("scan", quiet=True)
+        elif active == "window" and not self.worker_running("mode"):
+            self.load(quiet=True)
+        elif active in ("profile", "relays", "media_servers") and not self.worker_running("account-load") and not self.worker_running("account-save"):
+            self.load_account(quiet=True)
 
     def on_input_changed(self, event):
         event.stop()
@@ -441,8 +459,6 @@ class SettingsView:
         if self.runtime is None:
             status.update("Open Settings from the game center to check kwakore. Desktop and account controls are available in the categories on the left.")
             return
-        button = self.query_one("#runtime-refresh", Button)
-        button.disabled = True
         try:
             result = await asyncio.to_thread(self.runtime.request, "status")
             ready = result.get("health", {}).get("ready", False)
@@ -450,14 +466,13 @@ class SettingsView:
             status.update(("kwakore ready" if ready else "kwakore is not ready. Check the daemon.") + f"\n{len(games)} installed games on this system.")
         except RuntimeError as error:
             status.update(str(error))
-        finally:
-            button.disabled = False
 
     @work(exclusive=True, group="audio")
     async def update_audio(self, action="refresh"):
-        buttons = [self.query_one(f"#audio-{name}", Button) for name in ("down", "up", "mute", "refresh")]
-        for button in buttons:
-            button.disabled = True
+        buttons = [self.query_one(f"#audio-{name}", Button) for name in ("down", "up", "mute")]
+        if action != "refresh":
+            for button in buttons:
+                button.disabled = True
         try:
             volume, muted = await asyncio.to_thread(self.audio.volume if action == "refresh" else self.audio.change,
                                                    *(() if action == "refresh" else (action,)))
@@ -470,18 +485,27 @@ class SettingsView:
                 button.disabled = False
 
     @work(exclusive=True, group="account-load")
-    async def load_account(self):
+    async def load_account(self, quiet=False):
+        previous = self.account
         try:
-            self.account = await asyncio.to_thread(account_request, "account_settings")
+            account = await asyncio.to_thread(account_request, "account_settings")
         except SettingsError as error:
-            self.say(str(error), error=True)
+            if not quiet or self.account is None:
+                self.say(str(error), error=True)
             return
-        profile = self.account["profile"]
         for field, _ in PROFILE_FIELDS:
-            self.query_one(f"#profile-{field}", Input).value = str(profile.get(field) or "")
-        self.query_one("#relay-list", TextArea).text = "\n".join(
-            f"{tag[1]} {tag[2] if len(tag) > 2 else 'both'}" for tag in self.account["relays"])
-        self.query_one("#media-list", TextArea).text = "\n".join(self.account["media_servers"])
+            widget = self.query_one(f"#profile-{field}", Input)
+            old = str((previous or {}).get("profile", {}).get(field) or "")
+            if not quiet or widget.value == old:
+                widget.value = str(account["profile"].get(field) or "")
+        for selector, section in (("#relay-list", "relays"), ("#media-list", "media_servers")):
+            def text_for(snapshot):
+                values = (snapshot or {}).get(section, [])
+                return "\n".join(f"{tag[1]} {tag[2] if len(tag) > 2 else 'both'}" for tag in values) if section == "relays" else "\n".join(values)
+            widget = self.query_one(selector, TextArea)
+            if not quiet or widget.text == text_for(previous):
+                widget.text = text_for(account)
+        self.account = account
         for section in ("profile", "relays", "media_servers"):
             self.query_one(f"#save-{section}", Button).disabled = False
 
@@ -500,16 +524,20 @@ class SettingsView:
         status.update(message)
         status.set_class(error, "error")
 
-    @work(exclusive=True)
-    async def load(self):
+    @work(exclusive=True, group="mode")
+    async def load(self, quiet=False):
+        previous = self.current
         try:
             self.current = await asyncio.to_thread(self.controller.current_mode)
         except SettingsError as error:
             self.say(str(error), error=True)
             return
-        self.show_modes()
         modes = self.query_one("#modes", OptionList)
+        if previous != self.current or modes.disabled:
+            self.show_modes()
         modes.disabled = False
+        if quiet:
+            return
         if self.initial == "window":
             modes.focus()
         else:
@@ -527,7 +555,7 @@ class SettingsView:
         if event.option.id != self.current:
             self.apply(event.option.id)
 
-    @work(exclusive=True)
+    @work(exclusive=True, group="mode")
     async def apply(self, mode):
         modes = self.query_one("#modes", OptionList)
         modes.disabled = True
@@ -551,8 +579,6 @@ class SettingsView:
         event.stop()
         if event.button.id == "close":
             self.action_close_settings()
-        elif event.button.id == "runtime-refresh":
-            self.update_runtime()
         elif event.button.id and event.button.id.startswith("network-"):
             self.update_network(event.button.id.removeprefix("network-"))
         elif event.button.id and event.button.id.startswith("audio-"):
@@ -561,36 +587,42 @@ class SettingsView:
             self.save_account(event.button.id.removeprefix("save-"))
 
     @work(exclusive=True, group="network")
-    async def update_network(self, action="status"):
+    async def update_network(self, action="status", quiet=False):
         connect = self.query_one("#network-connect", Button)
-        scan = self.query_one("#network-scan", Button)
         choices = self.query_one("#networks", OptionList)
         field = self.query_one("#wifi-password", Input)
         selection = choices.highlighted
-        password = field.value
-        field.value = ""
-        connect.disabled = scan.disabled = choices.disabled = True
+        selected = self.networks[selection] if selection is not None and selection < len(self.networks) else None
+        password = field.value if action == "connect" else ""
+        if action == "connect":
+            field.value = ""
+            connect.disabled = choices.disabled = True
         status = self.query_one("#network-status", Static)
-        status.update("Connecting…" if action == "connect" else "Checking network…")
+        if not quiet:
+            status.update("Connecting…" if action == "connect" else "Checking network…")
         try:
             if action == "connect":
-                if selection is None or selection >= len(self.networks):
+                if selected is None:
                     raise SettingsError("Select a network first.")
-                message = await asyncio.to_thread(self.network.connect, self.networks[selection], password)
+                message = await asyncio.to_thread(self.network.connect, selected, password)
             else:
                 message = await asyncio.to_thread(self.network.status)
                 if action == "scan":
-                    self.networks = await asyncio.to_thread(self.network.scan)
-                    choices.clear_options()
-                    for index, network in enumerate(self.networks):
-                        choices.add_option(Option(Text(f"{network['ssid']} · {network['signal']}% · {network['security'] or 'Open'}"), id=str(index)))
+                    networks = await asyncio.to_thread(self.network.scan)
+                    if networks != self.networks:
+                        self.networks = networks
+                        choices.clear_options()
+                        for index, network in enumerate(networks):
+                            choices.add_option(Option(Text(f"{network['ssid']} · {network['signal']}% · {network['security'] or 'Open'}"), id=str(index)))
+                            if selected and all(network[key] == selected[key] for key in ("ssid", "security", "device")):
+                                choices.highlighted = index
                     if not self.networks:
                         message += "\nNo visible Wi-Fi networks. Check that Wi-Fi is enabled."
             status.update(message)
         except (SettingsError, OSError) as error:
-            status.update(str(error) if isinstance(error, SettingsError) else "Network request failed. Please retry.")
+            status.update(str(error) if isinstance(error, SettingsError) else "Network temporarily unavailable. Retrying automatically.")
         finally:
-            scan.disabled = choices.disabled = False
+            choices.disabled = False
             connect.disabled = not bool(self.networks)
 
     @work(exclusive=True, group="account-save")

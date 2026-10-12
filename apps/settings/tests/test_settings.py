@@ -288,5 +288,65 @@ class AccountFormTests(unittest.TestCase):
             settings.parse_lines("wss://one maybe", "relays")
 
 
+class AutomaticSettingsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_network_opens_and_rescans_without_losing_password_or_selection(self):
+        class Network:
+            reverse = False
+            def status(self):
+                return 'Connected'
+            def scan(self):
+                rows = [dict(ssid=name, security='WPA2', device='wlan0', signal=80) for name in ('First', 'Second')]
+                return list(reversed(rows)) if self.reverse else rows
+        network = Network()
+        app = settings.SettingsApp(settings.ModeController(run=Desktop()), network=network)
+        async with app.run_test(size=(80, 36)) as pilot:
+            await app.workers.wait_for_complete()
+            self.assertFalse(app.query('#runtime-refresh'))
+            self.assertFalse(app.query('#audio-refresh'))
+            self.assertFalse(app.query('#network-scan'))
+            app.query_one(settings.TabbedContent).active = 'network'
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            self.assertEqual(len(app.networks), 2)
+            choices = app.query_one('#networks')
+            choices.highlighted = 1
+            password = app.query_one('#wifi-password')
+            password.value = 'unsaved-password'
+            password.focus()
+            network.reverse = True
+            app.refresh_active_category()
+            await app.workers.wait_for_complete()
+            self.assertEqual(password.value, 'unsaved-password')
+            self.assertIs(app.focused, password)
+            self.assertEqual(app.networks[choices.highlighted]['ssid'], 'Second')
+
+    async def test_account_reads_update_clean_fields_and_preserve_drafts(self):
+        import copy
+        remote = dict(profile=dict(name="Player", about="Original"),
+                      relays=[["wss://one", "both"]], media_servers=["https://one"])
+        with patch.object(settings, "account_request", side_effect=lambda *a, **k: copy.deepcopy(remote)):
+            app = settings.SettingsApp(settings.ModeController(run=Desktop()))
+            async with app.run_test(size=(80, 36)) as pilot:
+                await app.workers.wait_for_complete()
+                app.query_one(settings.TabbedContent).active = 'profile'
+                await pilot.pause()
+                await app.workers.wait_for_complete()
+                name = app.query_one('#profile-name')
+                name.value = 'My draft'
+                name.focus()
+                app.query_one('#account-password').value = 'private-password'
+                app.query_one('#relay-list').text = 'wss://my-draft'
+                remote['profile'] = dict(name='Remote name', about='Updated about')
+                remote['media_servers'] = ['https://new']
+                app.refresh_active_category()
+                await app.workers.wait_for_complete()
+                self.assertEqual(name.value, 'My draft')
+                self.assertIs(app.focused, name)
+                self.assertEqual(app.query_one('#profile-about').value, 'Updated about')
+                self.assertEqual(app.query_one('#relay-list').text, 'wss://my-draft')
+                self.assertEqual(app.query_one('#media-list').text, 'https://new')
+                self.assertEqual(app.query_one('#account-password').value, 'private-password')
+
+
 if __name__ == "__main__":
     unittest.main()

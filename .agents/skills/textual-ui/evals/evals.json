@@ -1,0 +1,50 @@
+{
+  "skill_name": "textual-ui",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Add creator and release information to the launcher details panel. Keep our terminal look and make the controls usable at 80x28. Inspect the current style contract and write a concrete implementation and test plan; do not edit the repository.",
+      "expected_output": "Repo-aware plan reusing THEME, stable widgets, targeted updates, delayed details handling, narrow layout and mouse/keyboard verification.",
+      "files": [],
+      "assertions": [
+        "References the launcher style contract and shared THEME",
+        "Preserves selection and scroll without recomposing search",
+        "Includes headless Pilot verification at small sizes"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Our discovery page freezes when I type and its CPU climbs with 2000 games, even with images disabled. Investigate read-only and propose fixes grounded in measurements; do not replace the application or edit files.",
+      "expected_output": "Separates blocking handlers from DOM costs, proposes profiling and operation counts, distinguishes lazy images from virtualized widgets, avoids unsupported APIs.",
+      "files": [],
+      "assertions": [
+        "Separates backend wait from event-loop and widget-tree cost",
+        "Does not describe viewport artwork loading as DOM virtualization",
+        "Requires a comparable before/after workload"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Sketch a safe pattern for rapidly selecting games while a blocking runtime details call can take five seconds, then returning from settings. Explain how to test it without launching or stopping real games. Do not edit files.",
+      "expected_output": "Bounded threaded worker, latest selection/generation guard, UI-thread delivery, cancellation limits, delayed fake runtime and preserved focus.",
+      "files": [],
+      "assertions": [
+        "UI mutations from threads are marshalled to the main thread",
+        "Explains cancellation cannot forcibly stop the underlying thread",
+        "Rejects stale selection results and uses fake runtime tests"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Give an implementation-ready design for scaling this launcher to 1000 games preserving the green style, mouse/keyboard parity, selection, focus, and scroll on updates; cover asynchronous core/image work, stale-result and lifecycle safety, measurable profiling, and Pilot verification. Inspect read-only and do not edit files.",
+      "expected_output": "A repo-aware plan whose optimizations match measured widget and service costs, maintain stable UI state, bound background work, handle teardown and active modals, and provide reproducible performance and behavior checks.",
+      "files": [],
+      "assertions": [
+        "Reuses the shared theme and current page interaction contract",
+        "Separates lazy image loading from mounted-card scalability",
+        "Handles stale results, teardown, and UI-thread delivery",
+        "Includes measurable before/after profiling and Pilot verification"
+      ]
+    }
+  ]
+}

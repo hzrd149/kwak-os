@@ -46,7 +46,7 @@ nix eval --raw .#kwak-kiosk.python.outPath > /tmp/kwak-kiosk-python-path
 The smoke runner uses the real `kwak --json` transport, checks My Games and
 Find Games navigation, pagination and search at several terminal sizes,
 including the VM's approximate 88×33 library and 80×28 overlay. It permits
-only status, installed, windows and discover requests, disables account-library
+only status, installed, windows, detail and discover requests, disables account-library
 sync, isolates screenshot state, and verifies installed records and active
 windows are unchanged. It reports counts rather than personal game details.
 Discovery may read configured relays and update kwakore's catalog cache.
@@ -81,6 +81,22 @@ backgrounds are used for the overlay. Focus loss is the requested game pause
 behavior for the overlay; it does not guarantee resource suspension.
 
 ## First implemented slice
+
+The launcher library uses a left-hand game list and a scrollable details pane.
+Selecting a row opens its details; launching is an explicit Play action. The
+pane shows the description, installed release, available update, known releases,
+and running instances. Release checks run automatically; when a newer release is
+available, Update installs it through kwakore.
+Stop closes the selected game's exact runtime window IDs, including background
+windows; running state is refreshed without contacting discovery relays.
+
+Kwakore keeps the installed release until an explicit update. Its public CLI
+and control protocol currently do not support choosing an older release or
+setting a version pin. The launcher displays known releases but cannot yet
+restore a particular release on another kiosk. That requires a version-targeted
+install/update operation in kwakore and extending the synced library format
+to carry the chosen release. Social sections can be added to the details pane
+when the runtime exposes them.
 
 `apps/kiosk` provides My Games, Find Games, local search, paginated catalog
 loading, Install, Play, and Play Now. It uses the pinned kwakore package's
@@ -164,8 +180,7 @@ and pending game rows remain usable when the network fails.
 
 My Games uses this saved list, shows missing games immediately, downloads them
 concurrently, enables Play after installation completes, and exposes failed
-installs for manual retry via Refresh. The store offers Play Now and Add to My
-Games. Removal is explicitly confirmed and changes the saved list everywhere;
+installs with automatic retry. The store offers Play Now and Install. Removal is explicitly confirmed and changes the saved list everywhere;
 it leaves downloaded cache files alone. The session menu attempts pending sync
 for five seconds before offering Wait and retry or End session anyway. Ending
 a temporary account still uses the existing deletion lifecycle.
@@ -176,7 +191,7 @@ replaces the recommendations with the saved game and starts its download.
 Failed or unfinished library reads never trigger recommendations. These are
 catalog suggestions, without a popularity ranking or personalized scoring.
 
-Settings has a Sound tab with the current output volume, mute/unmute, refresh,
+Settings has a Sound tab with the current output volume, mute/unmute,
 and five-percent increments. Increases are capped at 100%. Commands run outside
 the UI thread and missing output devices show an actionable error. The package
 includes [WirePlumber's wpctl](https://pipewire.pages.freedesktop.org/wireplumber/man/wpctl.html)
@@ -319,8 +334,8 @@ windows, Profile, Relays, and Media servers. Select a category with the mouse
 or arrow keys and Enter; **Ctrl+Left** focuses the category rail. **Escape** or
 **Close** returns to your game list with its search and selection preserved.
 
-Game center checks the real kwakore service and counts installed games; Refresh
-service retries an unavailable daemon. Sound uses PipeWire, Wi-Fi uses
+Game center checks the real kwakore service and counts installed games
+automatically, including after temporary service failures. Sound uses PipeWire, Wi-Fi uses
 NetworkManager, and window modes use the active Hyprland session. Profile,
 relay, and Blossom changes use the kiosk account service and its existing
 publish flow. These controls report unavailable services when run on a host
@@ -332,3 +347,76 @@ system, run `kwak-kiosk` after rebuilding the system with this source. The
 standalone `kwak-settings` command shares the same category view and controls.
 The game runtime remains in kwakore; this UI does not change its daemon
 configuration or expose unsupported runtime options.
+
+## Discovery cards
+
+Find Games uses a responsive card grid with a compact shell and a game details
+panel. Click a card to select it, use arrows (or Home/End) to move through the
+grid, and press Enter to Play Now. Press Enter in search to return to the cards.
+Install adds the game to the local or synced library. My Games retains its
+library list and game management controls.
+
+Cards load public HTTPS artwork lazily as they enter the viewport, using the
+bounded image cache. Missing artwork gets a title-based fallback icon; broken
+artwork shows an availability placeholder. The current kwakore CLI catalog
+omits artwork URLs, so real catalog cards use fallback icons until the daemon
+provides image/icon metadata. The UI accepts image, icon, banner, picture,
+icon_url, or image_url fields without independently querying Nostr relays.
+
+## Launcher style and interaction contract
+
+The user approved this direction for future launcher work: a TUI game center
+inspired by Steam desktop and Big Picture, with discovery as its main visual
+focus and kwakore as the background game service. Preserve these conventions
+unless the user asks to change them:
+
+- **Compact shell:** thin, single-row top navigation; no large branding title
+  or outer gutters. Spend space on browsing and useful game details rather
+  than decorative framing or repeated headings.
+- **Discovery cards:** responsive artwork cards with a name, creator, and
+  short availability status. Keep the selected game's details and clear,
+  full-width Play Now and Install controls alongside the grid. Keep library
+  management controls in My Games.
+- **Visual consistency:** use the shared black-and-green kwak theme. Use
+  restrained borders, clear hover feedback, and an unmistakable selected and
+  focused card. Reuse the existing widgets and theme rather than introducing
+  a second visual system.
+- **Mouse and keyboard parity:** a click selects a card without launching it;
+  arrows and Home/End navigate; Enter plays the selected game. Enter from
+  search focuses the cards. Keep labels readable and actions reachable at
+  small terminal sizes, including 80×28 and the kiosk's 88×33 layout.
+- **Automatic freshness:** do not add routine Refresh, Scan, or Check updates
+  controls. Read data quietly on tab entry and at background intervals. Keep
+  existing data visible during reads, preserve focus and edits, and retry
+  temporary failures automatically. User actions should express intent (Play,
+  Install, Update, Connect, Publish), not daemon maintenance.
+- **Continuity:** settings opens inside the main TUI with categories on the
+  left. Escape returns to browsing. Preserve search, selection, and scroll
+  position across updates and when returning from settings.
+- **Artwork behavior:** reuse the bounded image cache, load artwork as cards
+  enter the viewport, and keep missing or failed artwork understandable.
+  Prefer real Napplet artwork supplied by kwakore; fallback icons support
+  incomplete metadata rather than replacing the intended artwork.
+- **Service boundary:** discovery, installation, launch, and game management
+  remain backed by kwakore. Share controls between local and destination
+  kiosk use; expose unavailable services clearly.
+
+For changes to browsing or navigation, check mouse and keyboard flows,
+selection preservation, responsive card layout, and readable action labels.
+Use the kiosk tests and local smoke runner; document any remaining daemon
+metadata limitations rather than implying that unsupported features work.
+
+## Automatic background updates
+
+The visible library or discovery tab updates every 60 seconds and when opened.
+Game windows are checked every three seconds; account library sync retains its
+30-second interval. Release availability is checked on library entry and every
+five minutes; the Update action appears only when a new release is available.
+Installing a release still requires the user's explicit Update action.
+
+Settings reads the active category on entry and every 15 seconds. Wi-Fi scans
+preserve the selected network and typed password. Audio reads preserve focus;
+account forms update unchanged fields while retaining edits. Background reads keep existing games and
+cards visible, reuse unchanged cards, and do not show routine loading messages
+or disable controls. Slow requests are skipped while their worker is active.
+Temporary catalog failures retain the current view and retry automatically.

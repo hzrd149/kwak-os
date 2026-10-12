@@ -26,7 +26,7 @@ stdenvNoCC.mkDerivation {
   '';
   installPhase = ''
     mkdir -p $out/share/kwak/kiosk $out/bin
-    cp kiosk.py library.py overlay.py screenshots.py images.py $out/share/kwak/kiosk/
+    cp kiosk.py library.py overlay.py screenshots.py images.py discovery.py $out/share/kwak/kiosk/
     cp ${../settings/settings.py} $out/share/kwak/kiosk/settings.py
     cp ${./kitty.conf} $out/share/kwak/kiosk/kitty.conf
     makeWrapper ${python}/bin/python3 $out/libexec/kwak-kiosk-tui \

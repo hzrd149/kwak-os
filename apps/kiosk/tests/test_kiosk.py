@@ -200,7 +200,8 @@ class IntegratedSettingsTests(unittest.IsolatedAsyncioTestCase):
                     self.assertNotIsInstance(app.screen, SettingsScreen)
                     self.assertEqual(app.query_one('#search', Input).value, 'Green')
                     self.assertEqual(app.selected()['address'], GAME['address'])
-                    self.assertEqual(runtime.calls, [('status',)] * (1 if size == (80, 28) else 2))
+                    self.assertTrue(runtime.calls)
+                    self.assertTrue(all(call == ('status',) for call in runtime.calls))
 
     async def test_service_failure_is_visible_without_closing_settings(self):
         from unittest.mock import patch

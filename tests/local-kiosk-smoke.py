@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "apps/kiosk"), str(ROOT / "apps/settings")]
 
 from kiosk import Kiosk, Runtime
+from discovery import Discovery, GameCard
 from overlay import DesktopActions, GameOverlay
 from screenshots import ScreenshotStore
 import tempfile
@@ -18,7 +19,7 @@ from settings import SettingsScreen
 
 class ReadOnlyRuntime(Runtime):
     def request(self, *args):
-        if not args or args[0] not in {"status", "installed", "windows", "discover"}:
+        if not args or args[0] not in {"status", "installed", "windows", "discover", "detail"}:
             raise RuntimeError("Local smoke test permits only read operations")
         return super().request(*args)
 
@@ -32,6 +33,16 @@ async def check_size(runtime, size):
         installed = len(app.games)
         assert app.query_one("#games", OptionList).option_count == installed
         assert "Loading" not in str(app.query_one("#status").render())
+        rail = app.query_one("#games", OptionList)
+        panel = app.query_one("#game-panel")
+        assert rail.region.right <= panel.region.x
+        if installed:
+            rail.highlighted = 0
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            assert app.selected()["address"] == app.games[0]["address"]
+            assert app.query_one("#game-title", Static).content == app.games[0]["name"]
+            assert "Installed release:" in str(app.query_one("#game-version", Static).content)
         nav = app.query_one("#nav")
         for button in nav.query(Button):
             assert button.region.width > 0 and button.region.right <= nav.region.right
@@ -39,6 +50,9 @@ async def check_size(runtime, size):
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert app.page == "discover"
+        browser = app.query_one(Discovery)
+        assert browser.display and not app.query_one("#games", OptionList).display
+        assert len(browser.query(GameCard)) == len(app.games)
         catalog = len(app.games)
         assert app.query_one("#games", OptionList).option_count == catalog
         search = app.query_one("#search", Input)
@@ -64,7 +78,8 @@ async def check_size(runtime, size):
         assert not isinstance(app.screen, SettingsScreen)
         assert app.page == "installed" and len(app.games) == installed
         return {"columns": size[0], "rows": size[1], "installed": installed,
-                "catalog": catalog, "navigation": "passed", "search": "passed", "settings": "passed"}
+                "catalog": catalog, "navigation": "passed", "search": "passed", "settings": "passed",
+                "split_library_details": "passed", "discovery_cards": "passed"}
 
 
 async def main():
