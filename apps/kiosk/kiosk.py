@@ -17,7 +17,9 @@ from textual.widgets import Button, Footer, Input, OptionList, Static
 from textual.widgets.option_list import Option
 from settings import THEME, SettingsScreen
 from library import Library
-from discovery import Discovery, GameCard
+from discovery import Discovery, GameCard, artwork
+from images import TerminalImage
+from game_details import GameDetails
 
 
 class RemoveGame(ModalScreen):
@@ -107,9 +109,9 @@ class Kiosk(App):
     CSS = """
     Screen { background: $background; color: $foreground; }
     #shell { width: 100%; height: 100%; padding: 0; }
-    #nav { height: 1; }
+    #nav { height: 3; }
     Button { margin-right: 1; }
-    #nav Button { width: 1fr; min-width: 0; height: 1; border: none; padding: 0 1; }
+    #nav Button { width: 1fr; min-width: 0; height: 3; padding: 0 1; }
     #actions Button { min-width: 0; padding: 0 1; }
     #library-body { height: 1fr; }
     #games { width: 32%; min-width: 22; height: 100%; border: solid $primary; }
@@ -119,10 +121,15 @@ class Kiosk(App):
     #library-body.discover #actions { grid-size: 1; grid-rows: 3; }
     #library-body.discover #actions Button { height: 3; }
     #sync { height: auto; }
-    #search { margin: 0; }
+    #search, #discovery-search { margin: 0; }
     #details { height: 1fr; padding: 0 1; }
-    #game-title { height: auto; color: $primary; text-style: bold; margin-bottom: 1; }
-    #game-state, #game-version { height: auto; margin-bottom: 1; }
+    #library-art { height: 5; width: 100%; background: $panel; }
+    #game-title { height: auto; color: $primary; text-style: bold; padding: 0 1; }
+    #game-state, #game-author { height: auto; padding: 0 1; }
+    #game-author { color: $foreground 60%; }
+    #game-version { height: auto; margin-bottom: 1; }
+    #detail-tabs { height: 3; }
+    #detail-tabs Button { width: 1fr; min-width: 0; padding: 0 1; margin: 0; }
     #detail { height: auto; margin-bottom: 1; }
     #actions { height: auto; layout: grid; grid-size: 3; grid-gutter: 0 1; }
     #actions Button { width: 100%; margin-right: 0; }
@@ -152,6 +159,8 @@ class Kiosk(App):
         self.details = {}
         self._list_signature = None
         self._selection_signature = None
+        self._library_art_source = None
+        self.detail_tab = "info"
         self.register_theme(THEME)
         self.theme = "kwak"
 
@@ -163,23 +172,29 @@ class Kiosk(App):
                 yield Button("Switch games", id="workspaces")
                 yield Button("Settings", id="settings")
                 yield Button("Session", id="session")
-            yield Input(placeholder="Search games…", id="search")
+            yield Input(placeholder="Filter My Games…", id="search")
+            yield Input(placeholder="Search Find Games…", id="discovery-search")
             yield Static("Checking library sync…" if self.library else "", id="sync", markup=False)
             with Horizontal(id="library-body"):
                 yield OptionList(id="games")
                 yield Discovery(id="discovery")
                 with Vertical(id="game-panel"):
-                    with VerticalScroll(id="details"):
-                        yield Static("Choose a game", id="game-title", markup=False)
-                        yield Static("", id="game-state", markup=False)
-                        yield Static("", id="detail", markup=False)
-                        yield Static("", id="game-version", markup=False)
+                    yield TerminalImage(id="library-art")
+                    yield Static("Choose a game", id="game-title", markup=False)
+                    yield Static("", id="game-author", markup=False)
+                    yield Static("", id="game-state", markup=False)
                     with Vertical(id="actions"):
                         yield Button("Play", id="play", variant="primary", disabled=True)
                         yield Button("Stop", id="stop", disabled=True)
                         yield Button("Update", id="update", disabled=True)
                         yield Button("Install", id="install", disabled=True)
                         yield Button("Remove", id="remove", disabled=True)
+                    with Horizontal(id="detail-tabs"):
+                        yield Button("Game Info", id="info-tab", variant="primary")
+                        yield Button("Releases", id="releases-tab")
+                    with VerticalScroll(id="details"):
+                        yield Static("", id="detail", markup=False)
+                        yield Static("", id="game-version", markup=False)
             yield Static("Loading your games…", id="status", markup=False)
 
     def launcher_query_one(self, selector, expect_type=None):
@@ -188,7 +203,10 @@ class Kiosk(App):
 
     def on_mount(self):
         self._launcher_screen = self.screen
+        self.launcher_query_one("#discovery-search").display = False
         self.launcher_query_one("#discovery").display = False
+        self.launcher_query_one("#library-art").display = False
+        self.show_detail_tab()
         self.launcher_query_one("#sync").display = self.library is not None
         self.launcher_query_one("#games", OptionList).focus()
         self.load()
@@ -387,10 +405,13 @@ class Kiosk(App):
             "Loading your saved library. Find Games is available." if self.library and not self.library_loaded and page == "installed" else
             "No games yet. Choose Find Games to explore the catalog.")
 
+    def active_search(self):
+        return self.launcher_query_one("#discovery-search" if self.page == "discover" else "#search", Input)
+
     def render_games(self):
         if not self.is_running:
             return
-        query = self.launcher_query_one("#search", Input).value.casefold()
+        query = self.active_search().value.casefold()
         listing = self.launcher_query_one("#games", OptionList)
         address = (listing.get_option_at_index(listing.highlighted).id
                    if listing.highlighted is not None else None)
@@ -400,6 +421,9 @@ class Kiosk(App):
         listing.display = not discovering
         browser = self.launcher_query_one("#discovery", Discovery)
         browser.display = discovering
+        self.launcher_query_one("#game-panel").display = not discovering
+        self.launcher_query_one("#search").display = self.page != "discover"
+        self.launcher_query_one("#discovery-search").display = self.page == "discover"
         self.launcher_query_one("#library-body").set_class(discovering, "discover")
         for game in self.games:
             if query not in game.get("name", "").casefold():
@@ -428,6 +452,8 @@ class Kiosk(App):
         self.update_selection()
         selected = self.selected()
         browser.show_games(rows if discovering else [], selected["address"] if selected else None)
+        if isinstance(self.screen, GameDetails):
+            self.screen.update_page()
 
     def selected(self):
         listing = self.launcher_query_one("#games", OptionList)
@@ -484,19 +510,37 @@ class Kiosk(App):
         self.launcher_query_one("#install", Button).label = "Install" if self.page == "discover" or not self.library else "Add to My Games"
         self.launcher_query_one("#install", Button).disabled = (not enabled or (self.page != "discover" and not self.recommending) or
                                                        bool(self.library and game and game["address"] in self.saved))
+        self.launcher_query_one("#install", Button).display = self.page == "discover" or self.recommending
         discovering = self.page == "discover" or self.recommending
         for control in ("stop", "update", "remove"):
             self.launcher_query_one(f"#{control}", Button).display = not discovering
-        self.launcher_query_one("#game-version", Static).display = not discovering
+        self.show_detail_tab()
         self.launcher_query_one("#remove", Button).disabled = not bool(self.library and game and game["address"] in self.saved)
+        self.launcher_query_one("#remove", Button).display = bool(self.library and game and game["address"] in self.saved)
         installed = bool(game and game["address"] in self.installed)
         active = self.running.get(game["address"], []) if game else []
+        self.launcher_query_one("#stop", Button).display = not discovering and bool(active)
         self.launcher_query_one("#stop", Button).disabled = not bool(active) or bool(game and game["address"] in self.busy)
         update_available = bool(game and (game.get("update_available") or self.installed.get(address, {}).get("update_available")))
         self.launcher_query_one("#update", Button).label = "Update"
         self.launcher_query_one("#update", Button).display = not discovering and update_available
         self.launcher_query_one("#update", Button).disabled = not installed or not update_available or bool(game and game["address"] in self.busy)
         self.launcher_query_one("#game-title", Static).update(game.get("name") or "Untitled game" if game else "Choose a game")
+        creator = (game.get("author_name") or game.get("author")) if game else None
+        author = self.launcher_query_one("#game-author", Static)
+        author.display = bool(creator)
+        author.update("By " + str(creator) if creator else "")
+        # A landscape banner is the best match for the compact hero; retain
+        # the shared HTTPS validator and other metadata artwork fallbacks.
+        source = ((artwork({"image": game.get("banner")}) or artwork(game))
+                  if game and not discovering else None)
+        image = self.launcher_query_one("#library-art", TerminalImage)
+        image.display = bool(source)
+        if source != self._library_art_source:
+            self._library_art_source = source
+            # The widget initializes its placeholder after the first refresh.
+            # Queue behind that initialization and reject superseded selections.
+            image.call_after_refresh(self.apply_library_art, source)
         state = (f"Running · {len(active)} instance(s)" if active else
                  "Downloading…" if game and game["address"] in self.busy else
                  "Unavailable" if game and not game.get("available") else "Installed · Ready to play" if installed else "Available to try or install") if game else ""
@@ -519,16 +563,28 @@ class Kiosk(App):
             if versions:
                 version_text += "\n\nKnown releases\n" + "\n".join(self.release_label(item) for item in versions)
                 version_text += "\nRelease selection is not available yet."
-        self.launcher_query_one("#game-version", Static).update(version_text)
+        self.launcher_query_one("#game-version", Static).update(version_text or "No release information is available yet.")
         self.launcher_query_one("#detail", Static).update(game.get("description") or "No description available yet." if game else
                                                 "Select a game from your library to see its details and controls.")
 
+    def apply_library_art(self, source):
+        if self.is_running and source == self._library_art_source:
+            self.launcher_query_one("#library-art", TerminalImage).set_source(source)
+
+    def show_detail_tab(self):
+        """Keep both detail sections mounted so polls preserve tab and scroll."""
+        info = self.detail_tab == "info"
+        self.launcher_query_one("#detail").display = info
+        self.launcher_query_one("#game-version").display = not info
+        self.launcher_query_one("#info-tab", Button).variant = "primary" if info else "default"
+        self.launcher_query_one("#releases-tab", Button).variant = "default" if info else "primary"
+
     def on_input_changed(self, event):
-        if event.input.id == "search" and event.input.screen is self._launcher_screen:
+        if event.input.id in ("search", "discovery-search") and event.input.screen is self._launcher_screen:
             self.render_games()
 
     def on_input_submitted(self, event):
-        if event.input.id != "search" or event.input.screen is not self._launcher_screen:
+        if event.input.id not in ("search", "discovery-search") or event.input.screen is not self._launcher_screen:
             return
         if self.page == "discover" or self.recommending:
             self.launcher_query_one(Discovery).focus_selected()
@@ -548,8 +604,8 @@ class Kiosk(App):
                 listing.highlighted = index
                 break
         # Highlighting emits the selection event; avoid rendering details twice.
-        if event.activate:
-            self.start_game()
+        if event.activate and not isinstance(self.screen, GameDetails):
+            self.push_screen(GameDetails(event.card.game))
 
     def on_option_list_option_selected(self):
         self.update_selection()
@@ -612,7 +668,11 @@ class Kiosk(App):
 
     def on_button_pressed(self, event):
         action = event.button.id
-        if action in ("library", "store"):
+        if action in ("info-tab", "releases-tab"):
+            self.detail_tab = "info" if action == "info-tab" else "releases"
+            self.show_detail_tab()
+            self.launcher_query_one("#details", VerticalScroll).scroll_home(animate=False)
+        elif action in ("library", "store"):
             self.page = "installed" if action == "library" else "discover"
             self.launcher_query_one("#library", Button).variant = "primary" if action == "library" else "default"
             self.launcher_query_one("#store", Button).variant = "primary" if action == "store" else "default"
@@ -621,38 +681,36 @@ class Kiosk(App):
             self.load(refresh=self.page == "discover", background=bool(self.games))
             if self.page == "installed" and self.games:
                 self.check_game_updates()
-        elif action == "play":
-            self.start_game()
-        elif action == "stop":
-            game = self.selected()
-            if game and game["address"] not in self.busy:
-                instances = self.running.get(game["address"], [])
-                if instances:
-                    self.stop_selected(game["address"], tuple(window["window_id"] for window in instances))
-        elif action == "update":
-            game = self.selected()
-            if game and game["address"] in self.installed and game["address"] not in self.busy:
-                detail = self.details.get(game["address"], {})
-                update = detail.get("update_available") or self.installed[game["address"]].get("update_available")
-                self.mutate("update" if update else "updates", game["address"])
-        elif action == "install":
+        elif action in ("play", "stop", "update", "install", "remove"):
             game = self.selected()
             if game:
-                if self.library:
-                    self.change_library(game["address"], "add")
-                else:
-                    self.mutate("install", game["address"])
-        elif action == "remove":
-            game = self.selected()
-            if game:
-                address = game["address"]
-                self.push_screen(RemoveGame(), lambda confirmed: self.change_library(address, "remove") if confirmed else None)
+                self.perform_game_action(action, game)
         elif action == "settings":
             self.push_screen(SettingsScreen(runtime=self.runtime, local=self.library is None, initial="overview"))
         elif action in ("session", "workspaces"):
             commands = {"session": ["kwak-session"],
                         "workspaces": ["hyprctl", "eval", "hl.plugin.hyprflow.toggle()"]}
             self.system_action(commands[action])
+
+    def perform_game_action(self, action, game):
+        address = game["address"]
+        if address in self.busy:
+            return
+        if action == "play" and game.get("available"):
+            self.mutate("launch" if address in self.installed else "try", address)
+        elif action == "stop":
+            instances = self.running.get(address, [])
+            if instances:
+                self.stop_selected(address, tuple(window["window_id"] for window in instances))
+        elif action == "update" and address in self.installed:
+            self.mutate("update", address)
+        elif action == "install" and game.get("available") and address not in self.installed:
+            if self.library:
+                self.change_library(address, "add")
+            else:
+                self.mutate("install", address)
+        elif action == "remove" and self.library and address in self.saved:
+            self.push_screen(RemoveGame(), lambda confirmed: self.change_library(address, "remove") if confirmed else None)
 
     @work(group="system")
     async def system_action(self, command):

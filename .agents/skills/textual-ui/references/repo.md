@@ -15,7 +15,13 @@ Read current files rather than assuming these snapshots remain exact:
 
 Use `$primary`, `$secondary`, `$foreground`, `$background`, `$surface`, `$panel`, `$warning`, and `$error` from the `kwak` theme. Its current primary is `#33ff66`, background black, foreground `#c8ffd4`. Do not copy a new palette into each application.
 
-Keep the launcher compact: single-row navigation, responsive discovery cards, selected-game controls alongside them, library management in My Games. Click selects discovery artwork; Enter activates the selected discovery game. Library selection displays details; Play is explicit. Preserve page-specific behavior rather than making every Enter press launch.
+Keep the launcher compact while retaining larger primary navigation buttons. Discovery uses a full-width card grid and a dedicated Napplet details/store page; Library and Discovery retain independent search inputs and queries. Click or Enter opens discovery details; Play and Install are explicit actions on that page. Keep library management in My Games. Library selection displays details; Play is explicit. Preserve page-specific behavior rather than making every Enter press launch.
+
+In My Games, put selected-game artwork (when available), title/status, and
+explicit actions above independently scrolling Game Info/Releases content.
+Collapse absent artwork. Keep these sections mounted during refreshes and
+change the image source only when its URL changes. Use real daemon metadata;
+do not invent play-time, social, or achievement data.
 
 Render daemon metadata with `markup=False` or structured Rich text. Reuse in-app settings and restore browsing focus on return. Loading and unavailable-service messages should explain the next usable action.
 

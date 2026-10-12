@@ -10,6 +10,7 @@ sys.path[:0] = [str(ROOT / "apps/kiosk"), str(ROOT / "apps/settings")]
 
 from kiosk import Kiosk, Runtime
 from discovery import Discovery, GameCard
+from game_details import GameDetails
 from overlay import DesktopActions, GameOverlay
 from screenshots import ScreenshotStore
 import tempfile
@@ -55,13 +56,24 @@ async def check_size(runtime, size):
         assert len(browser.query(GameCard)) == len(app.games)
         catalog = len(app.games)
         assert app.query_one("#games", OptionList).option_count == catalog
-        search = app.query_one("#search", Input)
+        search = app.query_one("#discovery-search", Input)
         search.value = "\u2603-no-such-local-smoke-game"
         await pilot.pause()
         assert app.query_one("#games", OptionList).option_count == 0
         search.value = ""
         await pilot.pause()
         assert app.query_one("#games", OptionList).option_count == catalog
+        await app.workers.wait_for_complete()
+        if catalog:
+            first = browser.cards[0]
+            await pilot.click(first)
+            await app.workers.wait_for_complete()
+            assert isinstance(app.screen, GameDetails)
+            assert app.screen.address == first.game["address"]
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, GameDetails)
+            assert search.value == ""
         await pilot.click("#library")
         await app.workers.wait_for_complete()
         assert app.page == "installed" and len(app.games) == installed
@@ -79,7 +91,7 @@ async def check_size(runtime, size):
         assert app.page == "installed" and len(app.games) == installed
         return {"columns": size[0], "rows": size[1], "installed": installed,
                 "catalog": catalog, "navigation": "passed", "search": "passed", "settings": "passed",
-                "split_library_details": "passed", "discovery_cards": "passed"}
+                "split_library_details": "passed", "discovery_cards": "passed", "details_page": "passed"}
 
 
 async def main():

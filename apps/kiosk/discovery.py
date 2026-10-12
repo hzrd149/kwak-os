@@ -92,6 +92,7 @@ class GameCard(Widget):
     def on_click(self, event):
         event.stop()
         self.focus()
+        self.post_message(self.Chosen(self, activate=True))
 
     def on_key(self, event):
         if event.key in ("left", "right", "up", "down", "home", "end"):

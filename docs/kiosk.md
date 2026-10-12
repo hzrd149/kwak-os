@@ -350,9 +350,10 @@ configuration or expose unsupported runtime options.
 
 ## Discovery cards
 
-Find Games uses a responsive card grid with a compact shell and a game details
-panel. Click a card to select it, use arrows (or Home/End) to move through the
-grid, and press Enter to Play Now. Press Enter in search to return to the cards.
+Find Games uses a responsive card grid with a compact shell and a dedicated game details
+page. Click a card or press Enter to open its dedicated Napplet details page.
+Use arrows (or Home/End) to move through the grid. Play and Install are explicit
+actions on the details page. Press Enter in search to return to the cards.
 Install adds the game to the local or synced library. My Games retains its
 library list and game management controls.
 
@@ -370,20 +371,21 @@ inspired by Steam desktop and Big Picture, with discovery as its main visual
 focus and kwakore as the background game service. Preserve these conventions
 unless the user asks to change them:
 
-- **Compact shell:** thin, single-row top navigation; no large branding title
+- **Compact shell:** prominent three-row primary navigation buttons; no large branding title
   or outer gutters. Spend space on browsing and useful game details rather
   than decorative framing or repeated headings.
 - **Discovery cards:** responsive artwork cards with a name, creator, and
-  short availability status. Keep the selected game's details and clear,
-  full-width Play Now and Install controls alongside the grid. Keep library
+  short availability status. Discovery uses the full browsing width. Open a
+  dedicated store/details page with artwork, creator, description, release
+  information, and clear Play and Install controls. Keep library
   management controls in My Games.
 - **Visual consistency:** use the shared black-and-green kwak theme. Use
   restrained borders, clear hover feedback, and an unmistakable selected and
   focused card. Reuse the existing widgets and theme rather than introducing
   a second visual system.
-- **Mouse and keyboard parity:** a click selects a card without launching it;
-  arrows and Home/End navigate; Enter plays the selected game. Enter from
-  search focuses the cards. Keep labels readable and actions reachable at
+- **Mouse and keyboard parity:** a click or Enter opens card details without
+  launching the game; arrows and Home/End navigate. Enter from search focuses
+  the cards. Play and Install require explicit actions on the details page. Keep labels readable and actions reachable at
   small terminal sizes, including 80×28 and the kiosk's 88×33 layout.
 - **Automatic freshness:** do not add routine Refresh, Scan, or Check updates
   controls. Read data quietly on tab entry and at background intervals. Keep
@@ -420,3 +422,37 @@ account forms update unchanged fields while retaining edits. Background reads ke
 cards visible, reuse unchanged cards, and do not show routine loading messages
 or disable controls. Slow requests are skipped while their worker is active.
 Temporary catalog failures retain the current view and retry automatically.
+
+## Dedicated Napplet details pages
+
+The primary navigation uses larger buttons. My Games and Find Games have
+separate search inputs and retain their own queries when switching tabs.
+Discovery's search area is reserved for future catalog filters.
+
+Clicking a discovery card or pressing Enter opens a dedicated store page with
+artwork, creator, description, release information, and required capabilities
+when provided by kwakore. Play Now tries an uninstalled game; Install adds it
+to the library. Installed games offer Play, and Stop, Update, or Remove from
+My Games appear when applicable. Escape or Back returns to the same discovery
+query, selection, and scroll position. Game actions remain backed by the shared
+launcher runtime; merely opening details never installs or launches a game.
+
+## Big Picture library hierarchy
+
+My Games retains the left-hand game list. The selected game's page places
+available artwork, its title, creator, and current state above the explicit
+Play, Stop, and Update actions. Artwork is optional: missing artwork collapses
+its area rather than leaving a blank banner. A supplied HTTPS banner takes
+priority over other artwork, and unchanged refreshes do not restart its load.
+
+Game Info and Releases split the descriptive content from installed/available
+release information. These sections remain mounted while switching tabs;
+background refreshes preserve the selected game and active information tab.
+The details body scrolls independently while the main actions remain reachable
+at small terminal sizes. Discovery keeps its dedicated details/store page and
+its separate search query.
+
+This adopts the references' visual hierarchy without inventing Steam-specific
+data. Play time, last played, achievements, activity, and friends should appear
+only when kwakore exposes meaningful data for them. Version pinning still
+requires the corresponding core API; release history remains read-only.

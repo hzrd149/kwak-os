@@ -4,8 +4,10 @@ Before changing the launcher UI, read the **Launcher style and interaction
 contract** in [docs/kiosk.md](../../docs/kiosk.md). This records the user's
 approved direction and should guide future launcher work.
 
-Keep the shell compact and discovery focused: a thin navigation bar, responsive
-artwork cards, and clear selected-game controls. Preserve mouse and keyboard
+Keep the shell compact and discovery focused: larger primary navigation buttons, responsive
+artwork cards, and a dedicated Napplet details/store page. Keep Library and
+Discovery search state separate. Clicking or pressing Enter on a discovery
+card opens details; Play and Install are explicit actions there. Preserve mouse and keyboard
 parity, the shared kwak theme, in-app settings, and navigation state. Use
 kwakore as the game service and reuse the existing image cache and settings
 controls. Avoid adding large headings, outer gutters, or decorative panels

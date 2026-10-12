@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from discovery import Discovery, GameCard, artwork
 from kiosk import Kiosk
+from game_details import GameDetails
 from textual.widgets import Button, Input, OptionList
 
 
@@ -35,22 +36,30 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(app.query_one('#games', OptionList).display)
             self.assertEqual(app.query_one('#shell').region.x, 0)
             self.assertGreater(browser.region.width, 45)
-            for control in ("play", "install"):
-                button = app.query_one(f"#{control}", Button)
-                self.assertGreaterEqual(button.content_size.width, len(str(button.label)))
-            self.assertFalse(app.query_one("#game-version").display)
+            self.assertFalse(app.query_one('#game-panel').display)
             self.assertTrue(cards[0].query_one('.card-icon').display)
             await pilot.click(cards[1])
-            self.assertEqual(app.selected()['address'], GAMES[1]['address'])
-            self.assertFalse(any(call[0] == 'try' for call in runtime.calls))
+            await app.workers.wait_for_complete()
+            self.assertIsInstance(app.screen, GameDetails)
+            self.assertEqual(app.screen.address, GAMES[1]['address'])
+            self.assertFalse(any(call[0] in ('try', 'launch') for call in runtime.calls))
+            for control in ("play", "install"):
+                button = app.screen.query_one(f"#{control}", Button)
+                self.assertGreaterEqual(button.content_size.width, len(str(button.label)))
+            await pilot.press('escape')
             await pilot.press('left')
             self.assertEqual(app.selected()['address'], GAMES[0]['address'])
             await pilot.press('down')
             self.assertEqual(app.selected()['address'], GAMES[browser.columns]['address'])
             await pilot.press('enter')
             await app.workers.wait_for_complete()
-            self.assertIn(('try', GAMES[browser.columns]['address']), runtime.calls)
-            search = app.query_one('#search', Input)
+            self.assertIsInstance(app.screen, GameDetails)
+            self.assertEqual(app.screen.address, GAMES[browser.columns]['address'])
+            await pilot.click('#play')
+            await app.workers.wait_for_complete()
+            self.assertIn(('launch', GAMES[browser.columns]['address']), runtime.calls)
+            await pilot.press('escape')
+            search = app.query_one('#discovery-search', Input)
             search.value = 'Game 7'
             await app.workers.wait_for_complete()
             await pilot.pause()

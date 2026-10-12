@@ -4,6 +4,7 @@ import threading
 import tempfile
 import unittest
 from kiosk import Kiosk, Runtime
+from discovery import GameCard
 from textual.widgets import Button, Input, OptionList, Static
 
 
@@ -92,6 +93,7 @@ class KioskTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(app.recommending)
             app.query_one("#games", OptionList).highlighted = 0
             await pilot.pause()
+            await pilot.click(app.query_one(GameCard))
             await pilot.click("#play")
             await app.workers.wait_for_complete()
             self.assertEqual(runtime.calls, [("try", GAME["address"])])
@@ -132,7 +134,10 @@ class KioskTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(runtime.calls[-1][0], "launch")
 
     async def test_browse_search_trial_and_install(self):
-        runtime = FakeRuntime()
+        class TrialRuntime(FakeRuntime):
+            def listing(self, command, *args):
+                return [GAME] if command == "discover" else []
+        runtime = TrialRuntime()
         app = Kiosk(runtime)
         async with app.run_test(size=(120, 40)) as pilot:
             await app.workers.wait_for_complete()
@@ -140,12 +145,14 @@ class KioskTests(unittest.IsolatedAsyncioTestCase):
             await app.workers.wait_for_complete()
             app.query_one("#games", OptionList).highlighted = 0
             await pilot.pause()
+            await pilot.click(app.query_one(GameCard))
             await pilot.click("#play")
             await app.workers.wait_for_complete()
             self.assertEqual(runtime.calls, [("try", GAME["address"])])
             await pilot.click("#install")
             await app.workers.wait_for_complete()
             self.assertEqual(runtime.calls[-1], ("install", GAME["address"]))
+            await pilot.press("escape")
             await pilot.click("#library")
             await app.workers.wait_for_complete()
             self.assertEqual(app.page, "installed")
