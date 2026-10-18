@@ -122,6 +122,22 @@ class OverlayAppTests(unittest.IsolatedAsyncioTestCase):
             await app.workers.wait_for_complete()
             self.assertEqual(desktop.calls, ["resume"])
 
+    async def test_controller_moves_activates_and_resumes(self):
+        from navigation import GamepadPressed
+        class Reader:
+            def stop(self): pass
+        for buttons, expected in ((("down", "a"), ["exit-game"]), (("b",), ["resume"]), (("guide",), ["resume"])):
+            desktop = FakeDesktop()
+            app = GameOverlay(desktop, gamepad=Reader())
+            async with app.run_test(size=(72, 36)) as pilot:
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                for button in buttons:
+                    app.post_message(GamepadPressed(button))
+                    await pilot.pause()
+                await app.workers.wait_for_complete()
+                self.assertEqual(desktop.calls, expected)
+
     async def test_exit_disabled_without_game(self):
         app = GameOverlay(FakeDesktop(False))
         async with app.run_test(size=(72, 30)):

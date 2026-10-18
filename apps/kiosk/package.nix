@@ -11,7 +11,7 @@
   makeWrapper,
 }:
 let
-  python = python3.withPackages (ps: [ ps.textual ps.textual-image ps.pillow ]);
+  python = python3.withPackages (ps: [ ps.textual ps.textual-image ps.pillow ps.evdev ]);
 in
 stdenvNoCC.mkDerivation {
   pname = "kwak-kiosk";
@@ -28,7 +28,7 @@ stdenvNoCC.mkDerivation {
   installPhase = ''
     mkdir -p $out/share/kwak/kiosk $out/bin
     cp kiosk.py library.py overlay.py screenshots.py images.py discovery.py game_details.py \
-      overlay_control.py terminal_font.py desktop_actions.py $out/share/kwak/kiosk/
+      gamepad.py navigation.py osk.py hints.py shell_state.py icons.py browse.py shelves.py game_menu.py overlay_control.py terminal_font.py desktop_actions.py $out/share/kwak/kiosk/
     cp ${../settings/settings.py} $out/share/kwak/kiosk/settings.py
     cp ${./kitty.conf} $out/share/kwak/kiosk/kitty.conf
     makeWrapper ${python}/bin/python3 $out/libexec/kwak-kiosk-tui \

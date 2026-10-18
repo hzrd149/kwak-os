@@ -1,5 +1,6 @@
 import threading
 import unittest
+from support import show_grid
 from kiosk import Kiosk
 from discovery import Discovery, GameCard
 from textual.widgets import Input, OptionList, Static
@@ -54,7 +55,7 @@ class AutomaticRefreshTests(unittest.IsolatedAsyncioTestCase):
                 await app.workers.wait_for_complete()
                 await pilot.click('#store')
                 await app.workers.wait_for_complete()
-                await pilot.pause()
+                await show_grid(pilot)
                 browser = app.query_one(Discovery)
                 cards = list(browser.query(GameCard))
                 cards[5].focus()

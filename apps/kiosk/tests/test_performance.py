@@ -2,7 +2,7 @@
 import unittest
 from unittest.mock import patch
 
-from textual.widgets import OptionList
+from support import show_grid
 from discovery import Discovery, GameCard
 from images import TerminalImage
 from kiosk import Kiosk
@@ -23,22 +23,19 @@ class PerformanceTests(unittest.IsolatedAsyncioTestCase):
             await app.workers.wait_for_complete()
             await pilot.click("#store")
             await app.workers.wait_for_complete()
-            await pilot.pause()
+            await show_grid(pilot)
             browser = app.query_one(Discovery)
-            listing = app.query_one(OptionList)
             cards = list(browser.query(GameCard))
             self.assertEqual(len(cards), 110)
             self.assertEqual(len(browser.query(TerminalImage)), 0)
             await pilot.press("down", "down")
             selected = app.selected()["address"]
-            with patch.object(listing, "clear_options", wraps=listing.clear_options) as clear, \
-                 patch.object(listing, "add_options", wraps=listing.add_options) as add, \
+            with patch.object(browser, "rebuild", wraps=browser.rebuild) as rebuild, \
                  patch.object(app, "load_details", wraps=app.load_details) as details:
                 for _ in range(5):
                     app.render_games()
                 await pilot.pause()
-                clear.assert_not_called()
-                add.assert_not_called()
+                rebuild.assert_not_called()
                 details.assert_not_called()
             self.assertEqual(list(browser.query(GameCard)), cards)
             self.assertEqual(app.selected()["address"], selected)
@@ -49,7 +46,7 @@ class PerformanceTests(unittest.IsolatedAsyncioTestCase):
             await app.workers.wait_for_complete()
             await pilot.click("#store")
             await app.workers.wait_for_complete()
-            await pilot.pause()
+            await show_grid(pilot)
             browser = app.query_one(Discovery)
             old = browser.selected_card
             new = browser.cards[1]
@@ -69,7 +66,7 @@ class PerformanceTests(unittest.IsolatedAsyncioTestCase):
                 await app.workers.wait_for_complete()
                 await pilot.click("#store")
                 await app.workers.wait_for_complete()
-                await pilot.pause()
+                await show_grid(pilot)
                 browser = app.query_one(Discovery)
                 card = browser.cards[0]
                 app.busy.add("0")

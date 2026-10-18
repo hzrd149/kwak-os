@@ -13,6 +13,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Static, TextArea
 from settings import THEME, apply_saved_theme
 from desktop_actions import DesktopActions, OverlayError
+from navigation import GamepadMixin
 from images import TerminalImage
 
 if __name__ == "__main__":
@@ -60,7 +61,7 @@ class PublishScreenshot(ModalScreen):
             self.dismiss(None)
 
 
-class GameOverlay(App):
+class GameOverlay(GamepadMixin, App):
     TITLE = "kwakOS · Game Menu"
     ENABLE_COMMAND_PALETTE = False
     BINDINGS = [("escape", "resume", "Resume")]
@@ -83,8 +84,9 @@ class GameOverlay(App):
     #menu-status { color: $warning; height: 2; }
     """
 
-    def __init__(self, desktop=None, screenshots=None):
+    def __init__(self, desktop=None, screenshots=None, gamepad=None):
         super().__init__()
+        self.gamepad = gamepad
         self.desktop = desktop or DesktopActions()
         from screenshots import ScreenshotStore
         self.screenshots = screenshots or ScreenshotStore()
@@ -121,6 +123,9 @@ class GameOverlay(App):
     async def on_mount(self):
         self.update_layout()
         await apply_saved_theme(self)
+        if self.gamepad:
+            # Guide over another game is the launcher's job, not the menu's.
+            self.start_gamepad(None if self.gamepad is True else self.gamepad, guide_elsewhere=None)
         self.default_screen.query_one("#resume", Button).focus()
         self.check_game()
         endpoint = os.environ.get("KWAK_OVERLAY_SOCKET")
@@ -204,10 +209,18 @@ class GameOverlay(App):
         self.default_screen.query_one("#publish-screenshot", Button).disabled = snapshot is None
 
     def on_unmount(self):
+        self.stop_gamepad()
         if self.control:
             endpoint = self.control.getsockname()
             self.control.close()
             Path(endpoint).unlink(missing_ok=True)
+
+    def gamepad_guide(self):
+        if self.screen is self.screen_stack[0]:
+            self.action_resume()
+        else:
+            self.pop_screen()
+        return True
 
     def action_resume(self):
         if not any(worker.group == "actions" and worker.is_running for worker in self.workers):
@@ -290,7 +303,7 @@ def main():
             return launch(*sys.argv[2:4], DesktopActions())
         except OverlayError:
             return 1
-    GameOverlay().run()
+    GameOverlay(gamepad=True).run()
     return 0
 
 

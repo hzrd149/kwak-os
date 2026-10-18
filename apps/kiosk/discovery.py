@@ -7,7 +7,9 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Static
 
+from icons import icon_hash
 from images import TerminalImage
+from navigation import move_focus
 
 
 def artwork(game):
@@ -17,6 +19,15 @@ def artwork(game):
         if isinstance(value, str) and urlsplit(value).scheme == "https":
             return value
     return None
+
+
+def card_source(game):
+    """Public artwork first, else the icon kwakore verifies by hash."""
+    source = artwork(game)
+    if source:
+        return source
+    digest = icon_hash(game)
+    return "kwak-icon:" + digest if digest else None
 
 
 class GameCard(Widget):
@@ -30,6 +41,9 @@ class GameCard(Widget):
     GameCard .card-name { height: 1; text-style: bold; }
     GameCard .card-author { height: 1; color: $foreground 60%; }
     GameCard .card-status { height: 1; color: $primary; }
+    GameCard.compact { height: 10; }
+    GameCard.compact TerminalImage, GameCard.compact .card-icon { height: 5; }
+    GameCard.compact .card-author { display: none; }
     """
 
     class Chosen(Message):
@@ -38,11 +52,11 @@ class GameCard(Widget):
             self.card = card
             self.activate = activate
 
-    def __init__(self, game, status):
-        super().__init__()
+    def __init__(self, game, status, compact=False):
+        super().__init__(classes="compact" if compact else None)
         self.game = game
         self.status = status
-        self.source = artwork(game)
+        self.source = card_source(game)
         self.image_started = False
 
     def compose(self):
@@ -66,7 +80,7 @@ class GameCard(Widget):
             self.query_one(".card-status", Static).update(status)
         self.game = game
         self.status = status
-        source = artwork(game)
+        source = card_source(game)
         if source != self.source:
             self.source = source
             self.image_started = False
@@ -83,7 +97,23 @@ class GameCard(Widget):
     def load_artwork(self):
         if self.source and not self.image_started and self.query(TerminalImage):
             self.image_started = True
-            self.query_one(TerminalImage).set_source(self.source)
+            if self.source.startswith("kwak-icon:"):
+                self.load_icon(self.source)
+            else:
+                self.query_one(TerminalImage).set_source(self.source)
+
+    @work(group="card-icon")
+    async def load_icon(self, source):
+        icons = getattr(self.app, "icons", None)
+        path = await icons.load(self.game) if icons is not None else None
+        if source != self.source or not self.is_mounted:
+            return
+        if path is None:
+            # No usable icon: keep the readable title fallback.
+            self.query(TerminalImage).set(display=False)
+            self.query_one(".card-icon").display = True
+            return
+        self.query_one(TerminalImage).set_source(str(path))
 
     def on_focus(self):
         self.post_message(self.Chosen(self))
@@ -94,11 +124,16 @@ class GameCard(Widget):
         self.focus()
         self.post_message(self.Chosen(self, activate=True))
 
+    def navigate(self, direction):
+        return self.parent.parent.move(self, direction)
+
     def on_key(self, event):
         if event.key in ("left", "right", "up", "down", "home", "end"):
             event.stop()
             event.prevent_default()
-            self.parent.parent.move(self, event.key)
+            if not self.navigate(event.key) and event.key in ("left", "right", "up", "down"):
+                # Leaving the grid at an edge reaches the toolbar and tabs.
+                move_focus(self.screen, event.key, self)
         elif event.key == "enter":
             event.stop()
             event.prevent_default()
@@ -126,6 +161,7 @@ class Discovery(VerticalScroll):
         self.cards_by_address = {}
         self.selected_card = None
         self._artwork_scheduled = False
+        self._focus_intent = False
 
     def compose(self):
         yield Static("No games match your search.", id="discovery-empty")
@@ -190,7 +226,8 @@ class Discovery(VerticalScroll):
                 card.update_game(game, status)
             self.select(self.address)
             return
-        focused = isinstance(self.app.focused, GameCard)
+        # A queued card focus is not applied yet; keep that intent too.
+        focused = isinstance(self.app.focused, GameCard) or self._focus_intent
         await grid.remove_children()
         if rows:
             await grid.mount(*(GameCard(game, status) for game, status in rows))
@@ -222,17 +259,35 @@ class Discovery(VerticalScroll):
             self._focus_pending = False
             self.focus_selected()
 
+    def focus_entry(self):
+        return self.cards_by_address.get(self.address)
+
+    def on_descendant_focus(self):
+        self._focus_intent = False
+
     def focus_selected(self):
         card = self.cards_by_address.get(self.address) or (self.cards[0] if self.cards else None)
         if card:
+            self._focus_intent = True
             card.focus()
         else:
             self.focus()
 
     def move(self, card, key):
+        """Move within the grid; False at an edge so focus can leave it."""
         cards = self.cards
-        index = self.card_indices[card.game["address"]]
+        index = self.card_indices.get(card.game["address"])
+        if index is None or not cards:
+            return False
+        last, column = len(cards) - 1, index % self.columns
+        if key == "left" and column == 0 or key == "right" and (column == self.columns - 1 or index == last):
+            return False
+        if key == "up" and index < self.columns:
+            return False
+        if key == "down" and index - column + self.columns > last:
+            return False
         target = {"left": index - 1, "right": index + 1,
                   "up": index - self.columns, "down": index + self.columns,
-                  "home": 0, "end": len(cards) - 1}[key]
-        cards[max(0, min(target, len(cards) - 1))].focus()
+                  "home": 0, "end": last}[key]
+        cards[max(0, min(target, last))].focus()
+        return True
