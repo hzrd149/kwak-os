@@ -28,6 +28,15 @@ class DesktopActionTests(unittest.TestCase):
         desktop.process_identity = lambda pid: IDENTITY
         return desktop, calls
 
+    def test_launch_identity_gate_does_not_wait_for_daemon(self):
+        desktop, calls = self.desktop()
+        self.assertTrue(desktop.launch_available())
+        self.assertFalse(any(call[0] == "windows" for call in calls))
+        desktop.target = {**TARGET, "window_id": "unverified"}
+        self.assertFalse(desktop.launch_available())
+        desktop.target = {**TARGET, "process": {**IDENTITY, "start": "old"}}
+        self.assertFalse(desktop.launch_available())
+
     def test_exit_stops_only_exact_runtime_window(self):
         desktop, calls = self.desktop()
         desktop.exit_game()
@@ -88,6 +97,7 @@ class FakeDesktop:
         self.available = available
         self.calls = []
     def game_available(self): return self.available
+    def launch_available(self): return self.available
     def resume(self): self.calls.append("resume")
     def exit_game(self): self.calls.append("exit-game")
     def library(self): self.calls.append("back-library")
@@ -144,23 +154,48 @@ class OverlayAppTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(app.query_one("#resume").disabled)
 
 class OverlayCaptureTests(unittest.TestCase):
-    def test_launcher_captures_target_before_starting_terminal(self):
-        from overlay import main
-        import os
-        events = []
-        def capture(self):
-            events.append("capture")
-            return TARGET
-        def launch(args, **kwargs):
-            events.append("kitty")
-            self.assertEqual(json.loads(kwargs["env"]["KWAK_OVERLAY_TARGET"]), TARGET)
-            self.assertIn("org.kwak.Overlay", args)
-            self.assertIn("initial_window_width=72c", args)
-            return 0
-        with patch("overlay.sys.argv", ["overlay.py", "--launch", "/kitty", "/config"]), \
-                patch.object(DesktopActions, "capture", capture), patch("overlay.subprocess.call", launch):
-            self.assertEqual(main(), 0)
-        self.assertEqual(events, ["capture", "kitty"])
+    def test_launcher_ignores_non_game_before_starting_terminal(self):
+        import tempfile
+        from overlay_control import launch
+        desktop = FakeDesktop(False)
+        desktop.capture = lambda: {"class": "org.kwak.Library"}
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.dict("os.environ", {"XDG_RUNTIME_DIR": directory}), \
+                patch("overlay_control.subprocess.Popen") as spawn:
+            self.assertEqual(launch("/kitty", "/config", desktop), 0)
+            spawn.assert_not_called()
+
+    def test_warm_launch_sends_fresh_target_without_starting_terminal(self):
+        import tempfile
+        import socket
+        from pathlib import Path
+        from overlay_control import launch
+        desktop = FakeDesktop()
+        desktop.capture = lambda: TARGET
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.dict("os.environ", {"XDG_RUNTIME_DIR": directory}), \
+                patch("overlay_control.subprocess.Popen") as spawn, \
+                socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as server:
+            server.bind(str(Path(directory) / "kwak-overlay.sock"))
+            server.settimeout(1)
+            self.assertEqual(launch("/kitty", "/config", desktop), 0)
+            self.assertEqual(json.loads(server.recv(16384)), {"target": TARGET})
+            spawn.assert_not_called()
+
+    def test_toggle_from_overlay_sends_hide_without_recapturing_game(self):
+        import tempfile
+        import socket
+        from pathlib import Path
+        from overlay_control import launch
+        desktop = FakeDesktop(False)
+        desktop.capture = lambda: {"class": "org.kwak.Overlay"}
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.dict("os.environ", {"XDG_RUNTIME_DIR": directory}), \
+                socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as server:
+            server.bind(str(Path(directory) / "kwak-overlay.sock"))
+            server.settimeout(1)
+            self.assertEqual(launch("/kitty", "/config", desktop), 0)
+            self.assertEqual(json.loads(server.recv(16384)), {"hide": True})
 
     def test_capture_accepts_real_nul_delimited_trial_context_without_rpc(self):
         def run(args, **kwargs):

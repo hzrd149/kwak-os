@@ -96,8 +96,7 @@ def main():
               "overlay": remote("readlink -f /run/current-system/sw/bin/kwak-overlay").strip(),
               "settings": args.settings,
               "config_sha256": remote("sha256sum /etc/xdg/hypr/hyprland.lua").split()[0],
-              "limitations": ["Game window is a terminal fixture, not a WebKit game",
-                              "Admin session has no Nostr library; account error in overlay is expected",
+              "limitations": ["Terminal fixture checks overlay rejection; game overlay behavior uses kiosk-overlay-e2e.py",
                               "Virtual GPU and keyboard input do not certify physical hardware"]}
 
     def record(name):
@@ -111,19 +110,13 @@ def main():
     launch("kitty --class kwak-kiosk-proof --title KIOSK-PROOF -o background='#203040' -o confirm_os_window_close=0 sh -c 'printf \"Game window fixture\\n\"; sleep 600'")
     fixture = wait_for(lambda: next((window for window in query("clients") if window["class"] == "kwak-kiosk-proof"), None))
     key("meta_l")
-    overlay = wait_for(lambda: next((window for window in query("clients") if window["class"] == "org.kwak.Overlay"), None))
-    assert overlay["floating"] and overlay["workspace"]["id"] == fixture["workspace"]["id"]
-    assert query("activewindow")["address"] == overlay["address"]
-    time.sleep(1)
-    capture("overlay.png")
-    record("lone Windows key opens floating overlay on the game's workspace")
-    pixel = Image.open(args.output / "overlay.png").convert("RGB").getpixel((overlay["at"][0] + 10, overlay["at"][1] + 10))
-    assert all(0 < value < original for value, original in zip(pixel, (32, 48, 64))), pixel
-    record("overlay background blends with the underlying game window")
-    key("esc")
-    wait_for(lambda: not any(window["class"] == "org.kwak.Overlay" for window in query("clients")))
+    # A terminal with a game-like title is deliberately not a verified game.
+    time.sleep(.5)
+    user("kwak-overlay")
+    assert not any(window["class"] == "org.kwak.Overlay" for window in query("clients"))
     assert query("activewindow")["address"] == fixture["address"]
-    record("Escape dismisses overlay and restores game focus")
+    capture("non-game.png")
+    record("Windows key ignores a terminal fixture and preserves focus")
     key("meta_l", "q")
     terminal = wait_for(lambda: next((window for window in query("clients") if window["class"] == "kitty"), None))
     assert not any(window["class"] == "org.kwak.Overlay" for window in query("clients"))

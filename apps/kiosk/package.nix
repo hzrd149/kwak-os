@@ -27,7 +27,8 @@ stdenvNoCC.mkDerivation {
   '';
   installPhase = ''
     mkdir -p $out/share/kwak/kiosk $out/bin
-    cp kiosk.py library.py overlay.py screenshots.py images.py discovery.py game_details.py $out/share/kwak/kiosk/
+    cp kiosk.py library.py overlay.py screenshots.py images.py discovery.py game_details.py \
+      overlay_control.py terminal_font.py desktop_actions.py $out/share/kwak/kiosk/
     cp ${../settings/settings.py} $out/share/kwak/kiosk/settings.py
     cp ${./kitty.conf} $out/share/kwak/kiosk/kitty.conf
     makeWrapper ${python}/bin/python3 $out/libexec/kwak-kiosk-tui \
@@ -43,15 +44,17 @@ stdenvNoCC.mkDerivation {
       exec $out/libexec/kwak-kiosk-tui "\$@"
     fi
     [ -n "\$XDG_RUNTIME_DIR" ] || exit 1
+    export KWAK_TERMINAL_ROLE=library
     exec ${lib.getExe' util-linux "flock"} --nonblock "\$XDG_RUNTIME_DIR/kwak-library.lock" \\
       ${lib.getExe kitty} --config $out/share/kwak/kiosk/kitty.conf \\
+      --watcher $out/share/kwak/kiosk/terminal_font.py \\
       --class org.kwak.Library --title 'My Games' $out/libexec/kwak-kiosk-tui "\$@"
     SH
     cat > $out/bin/kwak-overlay <<SH
     #!${stdenvNoCC.shell}
     [ -n "\$XDG_RUNTIME_DIR" ] || exit 1
-    exec ${lib.getExe' util-linux "flock"} --nonblock "\$XDG_RUNTIME_DIR/kwak-overlay.lock" \\
-      $out/libexec/kwak-overlay-tui --launch \\
+    export PATH=${lib.makeBinPath [ grim ]}:\$PATH
+    exec ${python}/bin/python3 $out/share/kwak/kiosk/overlay_control.py \\
       ${lib.getExe kitty} $out/share/kwak/kiosk/kitty.conf
     SH
     chmod +x $out/bin/*

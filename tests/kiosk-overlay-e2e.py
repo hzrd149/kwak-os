@@ -79,7 +79,8 @@ def main():
             wait_for(lambda: not any(window["address"] == client["address"] for window in query("clients")))
 
     def current_overlay():
-        return next((client for client in query("clients") if client["class"] == "org.kwak.Overlay"), None)
+        return next((client for client in query("clients") if client["class"] == "org.kwak.Overlay"
+                     and client.get("workspace", {}).get("name") != "special:kwak-overlay"), None)
 
     connection = socket.socket(socket.AF_UNIX)
     connection.settimeout(10)

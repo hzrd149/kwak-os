@@ -25,11 +25,19 @@ does not infer paths or download game artifacts itself.
 
 ## Terminal sizing
 
-The library, overlay, Settings, greeter and session dialogs use 18-point
-DejaVu Sans Mono. The VM fixes its 1600×1200 output at scale 1.25, yielding
+The library, Settings, greeter and session dialogs default to 18-point
+DejaVu Sans Mono. The game overlay inherits the packaged library terminal’s
+current point size at startup and whenever it receives focus. A Kitty watcher
+records library font adjustments and resizes in the session runtime directory;
+no terminal remote-control socket is enabled. Local `--local` terminals retain
+their own settings and do not publish a shared font size.
+
+The VM fixes its 1600×1200 output at scale 1.25, yielding
 a 1280×960 logical desktop instead of relying on virtual monitor density.
-The library fills workspace one; the overlay starts at 80×28 cells and
-scrolls its menu when needed. Physical displays retain automatic scaling.
+The library fills workspace one; the overlay starts at 72×28 cells and
+scrolls its menu when needed. Its screenshot preview collapses below 72 columns,
+keeping game actions accessible at larger fonts and smaller terminal sizes.
+Physical displays retain automatic scaling.
 Rebuild the VM to apply the display scale and packaged terminal settings.
 
 ## Local development with an existing kwakore
@@ -74,7 +82,7 @@ existing session resumes its current position.
 
 All system interfaces use the existing green Textual theme with mouse and
 keyboard controls. The library and store provide primary navigation. Windows
-opens a system overlay; Super+Q opens a terminal as an escape hatch. Hyprflow
+toggles the game overlay only while a verified game or the overlay has focus; Super+Q opens a terminal as an escape hatch. Hyprflow
 provides workspace selection between running applications. Transparent kitty
 backgrounds are used for the overlay. Focus loss is the requested game pause
 behavior for the overlay; it does not guarantee resource suspension.
@@ -114,10 +122,18 @@ for this first slice.
 The Nix package installs `kwak-kiosk` and `kwak-overlay`. Nostr desktop startup
 opens the library on workspace 1. The overlay is a separate game menu: Resume,
 Exit Game, Take Screenshot, Publish Screenshot, Back to Library, Switch Games
-through Hyprflow, Settings, and Session. It contains no game catalog or library
-rows. Publishing requires a confirmation with the saved filename, dimensions,
-and optional caption; Cancel is focused by default. Per-session locks
-prevent duplicate library or overlay windows. Existing administrator and ISO
+through Hyprflow, Settings, and Session. Prominent Resume and Exit Game actions
+sit above Capture & Share, Navigate, and System groups. A second pane previews
+the current game’s latest screenshot, with publication remaining an explicit,
+confirmed action. It contains no game catalog or library rows. Publishing requires a confirmation with the saved filename, dimensions,
+and optional caption; Cancel is focused by default. A per-session lock prevents duplicate library windows. Overlay commands use a
+serialized launcher and a private Unix datagram socket: the first valid game
+invocation starts the menu, and later invocations reuse it. Resume, Escape, and
+the Windows key hide the menu on a dedicated special workspace and restore
+the captured game; subsequent openings retarget the same UI to the focused game.
+The hidden menu waits on its socket rather than polling. Game validation and
+screenshot history load in background workers; exact destructive actions still
+revalidate the runtime identity before execution. Existing administrator and ISO
 startup behavior is retained. Super+E no longer opens the file manager.
 
 ### Game screenshots
@@ -428,3 +444,19 @@ Normal package builds and launches skip the application test suites. Run
 `nix build .#checks.x86_64-linux.kwak-kiosk` to run the kiosk suite, or
 `nix flake check` for all flake checks. CI should select these check targets
 explicitly; launching `nix run .#kwak-kiosk -- --local` does not invoke them.
+
+## Game overlay responsiveness verification
+
+The overlay regression tests cover game-only launch admission, cold font
+inheritance, warm command delivery without spawning another terminal, hide and
+reopen with a new game target, socket cleanup, and reachable controls at 36×20,
+52×28, 80×28, 88×33, and 120×40. Font watcher calls were checked against the
+flake’s Kitty 0.49.1; headless UI tests use packaged Textual 8.2.6.
+
+Graphical acceptance still requires testing Windows/Escape toggles over a real
+fullscreen game, library font changes across monitors, screenshot capture, and
+measuring keypress-to-first-frame and keypress-to-restored-game latency. The
+proposed warm targets are under 100 ms to show and under 50 ms to hide; these
+are targets, not measured results. Cold startup remains a separate measurement.
+Opening the menu requests pause through focus loss; it does not guarantee that
+every game suspends simulation.
