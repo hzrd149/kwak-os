@@ -12,7 +12,7 @@ class Library:
     def __init__(self, runtime):
         self.runtime = runtime
         self.lock = threading.Lock()
-        self.current = {"addresses": [], "loaded": False, "pending": [], "error": ""}
+        self.current = {"addresses": [], "loaded": False, "pending": [], "error": "", "revision": 0}
 
     def snapshot(self):
         return {**self.current, "addresses": list(self.current["addresses"])}
@@ -34,9 +34,9 @@ class Library:
                 self.current = {"addresses": [game["address"] for game in games],
                                 "loaded": bool(games) or not status.get("enabled") or result == "ok",
                                 "pending": [], "error": error,
-                                "install_sync": status}
+                                "install_sync": status, "revision": self.current["revision"] + 1}
             except RuntimeError as error:
-                self.current = {**self.current, "error": str(error)}
+                self.current = {**self.current, "error": str(error), "revision": self.current["revision"] + 1}
             return self.snapshot()
         finally:
             self.lock.release()

@@ -9,6 +9,7 @@ from kiosk import Kiosk
 from textual.widgets import Input, Static
 from textual.worker import WorkerCancelled
 from test_launcher import LauncherRuntime, ADDRESS, GAME
+from support import show_grid
 
 
 class LibraryPresentationTests(unittest.IsolatedAsyncioTestCase):
@@ -25,11 +26,11 @@ class LibraryPresentationTests(unittest.IsolatedAsyncioTestCase):
             app = Kiosk(LauncherRuntime())
             async with app.run_test(size=size) as pilot:
                 await self.settle(app, pilot)
+                self.assertIsInstance(app.focused, GameCard)
+                await show_grid(pilot)
                 browser = app.query_one(Discovery)
                 self.assertIsInstance(app.focused, GameCard)
                 self.assertTrue(browser.display)
-                self.assertFalse(app.query_one('#games').display)
-                self.assertFalse(app.query_one('#game-panel').display)
                 self.assertGreaterEqual(browser.region.width, size[0] - 2)
                 card = browser.cards[0]
                 self.assertIn('Running', card.status)
@@ -99,7 +100,8 @@ class LibraryPresentationTests(unittest.IsolatedAsyncioTestCase):
             app = Kiosk(ArtworkRuntime())
             async with app.run_test(size=(80, 28)) as pilot:
                 await self.settle(app, pilot)
-                card = app.query_one(GameCard)
+                await show_grid(pilot)
+                card = app.query_one(Discovery).query_one(GameCard)
                 image = card.query_one('.card-art')
                 if image._load_task:
                     await image._load_task
@@ -107,8 +109,8 @@ class LibraryPresentationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(image.state, 'ready')
                 previous = len(load.call_args_list)
                 for _ in range(10):
-                    app.update_selection()
+                    app.prefetch_details(app.selected_address)
                     app.render_games()
                 await self.settle(app, pilot)
                 self.assertEqual(len(load.call_args_list), previous)
-                load.assert_called_once_with('https://example.org/cover.png')
+                load.assert_called_with('https://example.org/cover.png')

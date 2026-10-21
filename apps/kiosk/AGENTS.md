@@ -7,8 +7,9 @@ approved direction and should guide future launcher work.
 Keep the shell compact and discovery focused: larger primary navigation buttons, responsive
 artwork cards, and a dedicated Napplet details/store page. Keep Library and
 Discovery search state separate. Clicking or pressing Enter on a discovery
-card opens details; Play and Install are explicit actions there. Preserve mouse and keyboard
-parity, the shared kwak theme, in-app settings, and navigation state. Use
+card opens details; Play and Install are explicit actions there. Preserve mouse, keyboard and
+controller parity (every control reachable with the D-pad and activated with
+A; add `gamepad_<button>` hooks where a screen needs more), the shared kwak theme, in-app settings, and navigation state. Use
 kwakore as the game service and reuse the existing image cache and settings
 controls. Avoid adding large headings, outer gutters, or decorative panels
 that reduce the browsing area.

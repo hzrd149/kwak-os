@@ -20,7 +20,8 @@ from settings import SettingsScreen
 
 class ReadOnlyRuntime(Runtime):
     def request(self, *args):
-        if not args or args[0] not in {"status", "diagnostics", "installed", "windows", "discover", "detail"}:
+        reads = {"status", "diagnostics", "installed", "windows", "discover", "detail", "icon", "versions", "snapshots"}
+        if not args or not (args[0] in reads or args[:2] == ("permissions", "get")):
             raise RuntimeError("Local smoke test permits only read operations")
         return super().request(*args)
 
@@ -32,10 +33,14 @@ async def check_size(runtime, size):
         await app.workers.wait_for_complete()
         await pilot.pause()
         installed = len(app.games)
-        assert app.query_one("#games", OptionList).option_count == installed
         assert "Loading" not in str(app.query_one("#status").render())
+        assert app.current_view() == "home"
+        # My Games opens on shelves; All games is the full cover grid.
+        await pilot.click("#library-all")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
         browser = app.query_one(Discovery)
-        assert browser.display and not app.query_one("#games", OptionList).display
+        assert browser.display
         assert len(browser.query(GameCard)) == installed
         if installed:
             first = browser.cards[0]
@@ -43,8 +48,9 @@ async def check_size(runtime, size):
             await app.workers.wait_for_complete()
             await pilot.pause()
             assert isinstance(app.screen, GameDetails)
-            assert app.screen.address == app.games[0]["address"]
-            assert app.screen.query_one("#store-title", Static).content == app.games[0]["name"]
+            # The grid is sorted by name, not kwakore's listing order.
+            assert app.screen.address == first.game["address"]
+            assert app.screen.query_one("#store-title", Static).content == first.game["name"]
             await pilot.click("#store-releases-tab")
             assert "Installed release:" in str(app.screen.query_one("#store-release", Static).content)
             await pilot.press("escape")
@@ -56,19 +62,23 @@ async def check_size(runtime, size):
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert app.page == "discover"
+        await pilot.click("#store-browse")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
         browser = app.query_one(Discovery)
-        assert browser.display and not app.query_one("#games", OptionList).display
-        assert len(browser.query(GameCard)) == len(app.games)
+        assert browser.display
         catalog = len(app.games)
-        assert app.query_one("#games", OptionList).option_count == catalog
+        assert len(browser.query(GameCard)) == catalog
         search = app.query_one("#discovery-search", Input)
         search.value = "\u2603-no-such-local-smoke-game"
+        await asyncio.sleep(app.SEARCH_DELAY + 0.1)
+        await app.workers.wait_for_complete()
         await pilot.pause()
-        assert app.query_one("#games", OptionList).option_count == 0
+        assert len(browser.query(GameCard)) == 0, "kwakore search should find nothing"
         search.value = ""
         await pilot.pause()
-        assert app.query_one("#games", OptionList).option_count == catalog
         await app.workers.wait_for_complete()
+        assert len(browser.query(GameCard)) == catalog
         if catalog:
             first = browser.cards[0]
             await pilot.click(first)

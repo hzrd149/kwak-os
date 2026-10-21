@@ -4,7 +4,8 @@ import threading
 import tempfile
 import unittest
 from kiosk import Kiosk, Runtime
-from discovery import GameCard
+from discovery import Discovery, GameCard
+from support import settle
 from textual.widgets import Button, Input, OptionList, Static
 
 
@@ -60,7 +61,8 @@ class KioskTests(unittest.IsolatedAsyncioTestCase):
             await app.workers.wait_for_complete()
             app.games = [GAME, other]
             app.render_games()
-            app.query_one("#games", OptionList).highlighted = 1
+            await pilot.pause()
+            next(card for card in app.query(GameCard) if card.game["address"] == other["address"]).focus()
             await pilot.pause()
             app.games = [other, GAME]
             app.render_games()
@@ -86,10 +88,9 @@ class KioskTests(unittest.IsolatedAsyncioTestCase):
         library = Library(runtime)
         app = Kiosk(runtime, library=library)
         async with app.run_test(size=(130, 40)) as pilot:
-            await app.workers.wait_for_complete()
+            await settle(pilot)  # Library sync starts the suggestion load.
             self.assertEqual(app.page, "installed")
             self.assertTrue(app.recommending)
-            app.query_one("#games", OptionList).highlighted = 0
             await pilot.pause()
             await pilot.click(app.query_one(GameCard))
             await pilot.click("#play")
@@ -112,7 +113,6 @@ class KioskTests(unittest.IsolatedAsyncioTestCase):
             await app.workers.wait_for_complete()
             await pilot.click("#store")
             await app.workers.wait_for_complete()
-            app.query_one("#games", OptionList).highlighted = 0
             await pilot.pause()
             await pilot.click(app.query_one(GameCard))
             await pilot.click("#play")
@@ -127,7 +127,8 @@ class KioskTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.page, "installed")
             app.query_one("#search", Input).value = "absent"
             await pilot.pause()
-            self.assertEqual(app.query_one("#games", OptionList).option_count, 0)
+            await pilot.pause()
+            self.assertEqual(len(app.query_one(Discovery).query(GameCard)), 0)
 
     async def test_error_does_not_look_like_empty_library(self):
         class FailedRuntime(FakeRuntime):
@@ -153,7 +154,6 @@ class IntegratedSettingsTests(unittest.IsolatedAsyncioTestCase):
                     await app.workers.wait_for_complete()
                     app.query_one('#search', Input).value = 'Green'
                     await pilot.pause()
-                    app.query_one('#games', OptionList).highlighted = 0
                     await pilot.click('#settings')
                     await app.workers.wait_for_complete()
                     await pilot.pause()

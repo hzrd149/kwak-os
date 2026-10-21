@@ -4,7 +4,8 @@ from unittest.mock import patch
 from discovery import Discovery, GameCard, artwork
 from kiosk import Kiosk
 from game_details import GameDetails
-from textual.widgets import Button, Input, OptionList
+from textual.widgets import Button, Input
+from support import show_grid
 
 
 GAMES = [dict(address=f"35129:{'a' * 64}:game-{i}", name=f"Game {i}",
@@ -29,14 +30,12 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
             await app.workers.wait_for_complete()
             await pilot.click('#store')
             await app.workers.wait_for_complete()
-            await pilot.pause()
+            await show_grid(pilot)
             browser = app.query_one(Discovery)
             cards = list(browser.query(GameCard))
             self.assertEqual(len(cards), 8)
-            self.assertFalse(app.query_one('#games', OptionList).display)
             self.assertEqual(app.query_one('#shell').region.x, 0)
             self.assertGreater(browser.region.width, 45)
-            self.assertFalse(app.query_one('#game-panel').display)
             self.assertTrue(cards[0].query_one('.card-icon').display)
             await pilot.click(cards[1])
             await app.workers.wait_for_complete()
@@ -96,8 +95,10 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
                 await app.workers.wait_for_complete()
                 await pilot.click('#store')
                 await app.workers.wait_for_complete()
-                await pilot.pause()
-                card = app.query_one(GameCard)
+                await show_grid(pilot)
+                load.reset_mock()
+                card = app.query_one(Discovery).query_one(GameCard)
+                card.image_started = False
                 card.load_artwork()
                 await pilot.pause()
                 self.assertFalse(card.query_one('.card-icon').display)

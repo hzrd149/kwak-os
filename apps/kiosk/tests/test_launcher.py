@@ -4,7 +4,8 @@ import unittest
 from kiosk import Kiosk
 from discovery import Discovery, GameCard
 from game_details import GameDetails
-from textual.widgets import Button, OptionList, Static
+from textual.widgets import Button, Static
+from support import show_grid
 from textual.worker import WorkerCancelled
 
 ADDRESS = '35129:' + 'a' * 64 + ':one'
@@ -55,7 +56,8 @@ class LauncherTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
 
     async def open_first(self, app, pilot):
-        app.launcher_query_one(Discovery).focus_selected()
+        app.browser().request_focus_selected()
+        await pilot.pause()
         await pilot.press('enter')
         await self.settle(app, pilot)
         self.assertIsInstance(app.screen, GameDetails)
@@ -66,9 +68,8 @@ class LauncherTests(unittest.IsolatedAsyncioTestCase):
             app = Kiosk(runtime)
             async with app.run_test(size=size) as pilot:
                 await self.settle(app, pilot)
+                await show_grid(pilot)
                 browser = app.query_one(Discovery)
-                self.assertFalse(app.query_one('#games').display)
-                self.assertFalse(app.query_one('#game-panel').display)
                 browser.cards[1].focus()
                 await pilot.pause()
                 self.assertEqual(app.selected()['address'], OTHER)
@@ -99,8 +100,7 @@ class LauncherTests(unittest.IsolatedAsyncioTestCase):
             await pilot.click('#update')
             await self.settle(app, pilot)
             self.assertEqual(runtime.calls[-1], ('update', ADDRESS))
-            self.assertIn('Installed release:', str(app.launcher_query_one('#game-version', Static).content))
-            self.assertIn('Release selection is not available yet', str(app.launcher_query_one('#game-version', Static).content))
+            self.assertIn('Installed release:', str(app.screen.query_one('#store-release', Static).content))
 
     async def test_poll_failure_disables_stop_and_update_refresh_failure_is_reported(self):
         runtime = LauncherRuntime()
@@ -112,7 +112,7 @@ class LauncherTests(unittest.IsolatedAsyncioTestCase):
             app.poll_windows()
             await self.settle(app, pilot)
             self.assertEqual(str(app.screen.query_one('#play', Button).label), 'Play')
-            self.assertIn('unavailable', str(app.launcher_query_one('#game-state', Static).content))
+            self.assertIn('unavailable', str(app.screen.query_one('#store-state', Static).content))
             runtime.fail_refresh = True
             await pilot.click('#update')
             await self.settle(app, pilot)
@@ -133,8 +133,9 @@ class LauncherTests(unittest.IsolatedAsyncioTestCase):
         async with app.run_test(size=(100, 36)) as pilot:
             await self.settle(app, pilot)
             self.assertIn(("updates",), runtime.calls)
-            self.assertEqual(str(app.query_one("#update", Button).label), "Update")
-            self.assertFalse(app.query_one("#update", Button).disabled)
+            await self.open_first(app, pilot)
+            self.assertTrue(app.screen.query_one("#update", Button).display)
+            self.assertFalse(app.screen.query_one("#update", Button).disabled)
             self.assertFalse(app.query('#refresh'))
             self.assertFalse(any(call[0] == "update" for call in runtime.calls))
 
@@ -151,11 +152,13 @@ class LauncherTests(unittest.IsolatedAsyncioTestCase):
         try:
             async with app.run_test(size=(100, 36)) as pilot:
                 await pilot.pause()
-                app.query_one('#games', OptionList).highlighted = 1
+                next(card for card in app.query(GameCard) if card.game['address'] == OTHER).focus()
                 await pilot.pause()
                 gate.set()
                 await self.settle(app, pilot)
-                self.assertEqual(str(app.query_one('#game-title', Static).content), 'Second Game')
+                self.assertEqual(app.selected()['address'], OTHER)
+                self.assertIn(OTHER, app.details)
+                self.assertNotIn(ADDRESS, app.details)
         finally:
             gate.set()
 

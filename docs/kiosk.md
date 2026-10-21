@@ -19,17 +19,28 @@ for one day under `$XDG_CACHE_HOME/kwak/images`, with hashed filenames and atomi
 writes. Downloads are limited to 8 MiB, decoded images to 16 million pixels,
 and previews to 512 pixels per side; animations use their first frame.
 
-This prepares image rendering without changing the library layout. Napplet
-icons still need an explicit source from kwakore's control API; the widget
-does not infer paths or download game artifacts itself.
+Napplet icons come from kwakore: descriptors carry only the icon's manifest
+hash, and `kwak icon` returns the image after the daemon verifies that hash and
+re-encodes it as PNG. `apps/kiosk/icons.py` caches each icon by that hash under
+`$XDG_CACHE_HOME/kwak/icons` (owner-only files, no expiry, since a changed
+icon has a new hash), with at most three fetches in flight. A missing icon is
+not retried this session; an unavailable one is retried after five minutes.
 
 ## Terminal sizing
 
-The library, overlay, Settings, greeter and session dialogs use 18-point
-DejaVu Sans Mono. The VM fixes its 1600×1200 output at scale 1.25, yielding
+The library, Settings, greeter and session dialogs default to 18-point
+DejaVu Sans Mono. The game overlay inherits the packaged library terminal’s
+current point size at startup and whenever it receives focus. A Kitty watcher
+records library font adjustments and resizes in the session runtime directory;
+no terminal remote-control socket is enabled. Local `--local` terminals retain
+their own settings and do not publish a shared font size.
+
+The VM fixes its 1600×1200 output at scale 1.25, yielding
 a 1280×960 logical desktop instead of relying on virtual monitor density.
-The library fills workspace one; the overlay starts at 80×28 cells and
-scrolls its menu when needed. Physical displays retain automatic scaling.
+The library fills workspace one; the overlay starts at 72×28 cells and
+scrolls its menu when needed. Its screenshot preview collapses below 72 columns,
+keeping game actions accessible at larger fonts and smaller terminal sizes.
+Physical displays retain automatic scaling.
 Rebuild the VM to apply the display scale and packaged terminal settings.
 
 ## Local development with an existing kwakore
@@ -74,7 +85,7 @@ existing session resumes its current position.
 
 All system interfaces use the existing green Textual theme with mouse and
 keyboard controls. The library and store provide primary navigation. Windows
-opens a system overlay; Super+Q opens a terminal as an escape hatch. Hyprflow
+toggles the game overlay only while a verified game or the overlay has focus; Super+Q opens a terminal as an escape hatch. Hyprflow
 provides workspace selection between running applications. Transparent kitty
 backgrounds are used for the overlay. Focus loss is the requested game pause
 behavior for the overlay; it does not guarantee resource suspension.
@@ -114,10 +125,18 @@ for this first slice.
 The Nix package installs `kwak-kiosk` and `kwak-overlay`. Nostr desktop startup
 opens the library on workspace 1. The overlay is a separate game menu: Resume,
 Exit Game, Take Screenshot, Publish Screenshot, Back to Library, Switch Games
-through Hyprflow, Settings, and Session. It contains no game catalog or library
-rows. Publishing requires a confirmation with the saved filename, dimensions,
-and optional caption; Cancel is focused by default. Per-session locks
-prevent duplicate library or overlay windows. Existing administrator and ISO
+through Hyprflow, Settings, and Session. Prominent Resume and Exit Game actions
+sit above Capture & Share, Navigate, and System groups. A second pane previews
+the current game’s latest screenshot, with publication remaining an explicit,
+confirmed action. It contains no game catalog or library rows. Publishing requires a confirmation with the saved filename, dimensions,
+and optional caption; Cancel is focused by default. A per-session lock prevents duplicate library windows. Overlay commands use a
+serialized launcher and a private Unix datagram socket: the first valid game
+invocation starts the menu, and later invocations reuse it. Resume, Escape, and
+the Windows key hide the menu on a dedicated special workspace and restore
+the captured game; subsequent openings retarget the same UI to the focused game.
+The hidden menu waits on its socket rather than polling. Game validation and
+screenshot history load in background workers; exact destructive actions still
+revalidate the runtime identity before execution. Existing administrator and ISO
 startup behavior is retained. Super+E no longer opens the file manager.
 
 ### Game screenshots
@@ -320,15 +339,13 @@ Find Games uses a responsive card grid with a compact shell and a dedicated game
 page. Click a card or press Enter to open its dedicated Napplet details page.
 Use arrows (or Home/End) to move through the grid. Play and Install are explicit
 actions on the details page. Press Enter in search to return to the cards.
-Install adds the game to the local or synced library. My Games retains its
-library list and game management controls.
+Install adds the game to the local or synced library.
 
-Cards load public HTTPS artwork lazily as they enter the viewport, using the
-bounded image cache. Missing artwork gets a title-based fallback icon; broken
-artwork shows an availability placeholder. The current kwakore CLI catalog
-omits artwork URLs, so real catalog cards use fallback icons until the daemon
-provides image/icon metadata. The UI accepts image, icon, banner, picture,
-icon_url, or image_url fields without independently querying Nostr relays.
+Cards load artwork lazily as they enter the viewport: public HTTPS artwork
+(image, icon, banner, picture, icon_url or image_url fields) through the
+bounded image cache, otherwise the napplet's verified kwakore icon. Games
+without either keep a title-based fallback icon; broken artwork shows an
+availability placeholder. The launcher never queries Nostr relays itself.
 
 ## Launcher style and interaction contract
 
@@ -337,7 +354,8 @@ inspired by Steam desktop and Big Picture, with discovery as its main visual
 focus and kwakore as the background game service. Preserve these conventions
 unless the user asks to change them:
 
-- **Compact shell:** prominent three-row primary navigation buttons; no large branding title
+- **Compact shell:** prominent three-row primary navigation buttons and a
+  one-row toolbar (view, search, sort and filter) per page; no large branding title
   or outer gutters. Spend space on browsing and useful game details rather
   than decorative framing or repeated headings.
 - **Cover grids:** My Games and Find Games use responsive artwork cards with
@@ -349,10 +367,15 @@ unless the user asks to change them:
   restrained borders, clear hover feedback, and an unmistakable selected and
   focused card. Reuse the existing widgets and theme rather than introducing
   a second visual system.
-- **Mouse and keyboard parity:** a click or Enter opens card details without
-  launching the game; arrows and Home/End navigate. Enter from search focuses
-  the cards. Play and Install require explicit actions on the details page. Keep labels readable and actions reachable at
-  small terminal sizes, including 80×28 and the kiosk's 88×33 layout.
+- **Mouse, keyboard and controller parity:** a click, Enter or the A button
+  opens card details without launching the game; arrows, Home/End and the
+  D-pad or left stick navigate. Enter from search focuses the cards. Play and
+  Install require explicit actions on the details page. Every control must be
+  reachable with a controller (see Controller input). Size layouts by
+  proportion (`fr`, percentages) rather than fixed cell counts: Kitty's
+  Ctrl+plus/minus scales the whole interface to the screen, so the ratio
+  matters more than any one size. Keep labels readable and actions reachable
+  at 80×28 and the kiosk's 88×33 layout.
 - **Automatic freshness:** do not add routine Refresh, Scan, or Check updates
   controls. Read data quietly on tab entry and at background intervals. Keep
   existing data visible during reads, preserve focus and edits, and retry
@@ -374,11 +397,91 @@ selection preservation, responsive card layout, and readable action labels.
 Use the kiosk tests and local smoke runner; document any remaining daemon
 metadata limitations rather than implying that unsupported features work.
 
+## Controller input
+
+The launcher and game menu read game controllers directly through evdev
+(`apps/kiosk/gamepad.py`), and `apps/kiosk/navigation.py` turns them into
+Textual actions. Only real pads are opened: a device needs face buttons and a
+D-pad, hat or stick, and anything with a keyboard's letter keys, such as the
+swipe-card reader, is ignored. Devices are never grabbed, so napplet games
+keep receiving the same controller through WebKit, and pads are rescanned
+every two seconds for hotplug.
+
+Because devices are shared, every button except Guide is delivered only while
+the interface's own window is active. The reader follows Hyprland's event
+socket (`activewindowv2`) and compares the active window's PID with its own
+process ancestors, which include the hosting Kitty. Without Hyprland it
+ignores controllers unless `KWAK_GAMEPAD_UNGATED=1` is set, for example with
+`kwak-kiosk --local` on a development host. Buttons still held when focus
+returns are ignored until released, so the A press that closed a menu never
+also activates the launcher. Directions repeat after 380 ms, then every 120 ms.
+
+| Button | Action |
+| --- | --- |
+| D-pad / left stick | Move focus spatially; within grids by row and column, leaving at an edge |
+| A | Activate: open a cover, press a button, open the on-screen keyboard on a text field |
+| B | Back: close a dialog or keyboard, leave a page, then grid → tabs → grid |
+| Y | Search with the on-screen keyboard |
+| L1 / R1 | Previous / next tab (My Games ⇄ Find Games, game page sections) |
+| Guide | Over a game: open the game menu. In the launcher: My Games, then the system menu |
+
+The on-screen keyboard edits the field live, so a filter narrows while letters
+are chosen. X deletes, Y adds a space, Menu finishes like Enter, and B closes
+keeping the text. A one-row hint bar appears after controller input and hides
+again on keyboard or mouse input, so keyboard users keep the full height.
+
+Device access relies on logind's `uaccess` ACLs for the active seat session.
+If a pad is present but unreadable, the reader records "Controller found but
+not accessible" instead of failing. This has not yet been verified on
+hardware for greetd kiosk accounts; a narrow `ID_INPUT_JOYSTICK` uaccess rule
+in `modules/users.nix` is the fallback if it does not work. Guide over a game
+needs the launcher running, since its reader opens the game menu.
+
+## Library and store views
+
+Both pages open on a **Home** view of horizontal shelves, with a one-row
+toolbar under the primary navigation. L1/R1 (or the toolbar buttons) step
+through My Games Home → All games → Find Games Home → Browse. Typing a search
+switches to the grid; Home clears the store's search and filters.
+
+**My Games Home** shows, when not empty: Continue playing (running games),
+Recently played, Favourites, one shelf per collection, Updates available,
+Recently added and All games. **All games** is the cover grid with Sort (Name,
+Recently played, Recently updated, Recently added, Installed first) and Show
+(All, Installed, Favourites, Updates, each collection) cycle buttons; ties
+always fall back to the name.
+
+**Find Games Home** builds shelves from the cached catalog alone. kwakore has
+no editorial picks, so "New & updated" is plainly the newest publications
+that run here, followed by Try instantly (runs here, not installed) and the
+four most common archetypes. **Browse** sends search text, the Category
+(archetype) and "Runs here" filters to `kwak discover`, which searches the
+whole catalog. Requests wait 300 ms after typing, a newer request discards
+older answers, and the cached catalog is filtered locally until kwakore
+answers. Results load 48 at a time; the next page loads when focus reaches
+the last row. Cards for games missing a required capability say what they need.
+
+Favourites, collections, recently played and first-seen times are kept on
+this device in `$XDG_STATE_HOME/kwak/kiosk/activity.json`, since kwakore has
+no play history or collection fields. They are lost with temporary kiosk
+accounts and do not sync between devices. Each game page has Favourite and
+Options… buttons (X and Menu on a controller, from any cover) for favourites,
+collections and removal.
+
 ## Automatic background updates
 
+The launcher follows kwakore's service events (`kwak --json events`): window
+opened/closed, napplet installed/updated/uninstalled, updates available and
+sync completed. Running state changes as soon as a window opens or closes,
+several install events in a row become one re-read, and a game opened from
+the game menu or a desktop entry still counts as recently played. While the
+stream is healthy, game windows are polled only every 30 seconds as a safety
+net; if the stream ends, the launcher reconnects with backoff (1 to 30
+seconds) and returns to the intervals below in the meantime.
+
 The visible library or discovery tab updates every 60 seconds and when opened.
-Game windows are checked every three seconds; account library sync retains its
-30-second interval. Release availability is checked on library entry and every
+Without events, game windows are checked every three seconds; account library
+sync retains its 30-second interval. Release availability is checked on library entry and every
 five minutes; the Update action appears only when a new release is available.
 Installing a release still requires the user's explicit Update action.
 
@@ -393,7 +496,7 @@ Temporary catalog failures retain the current view and retry automatically.
 
 The primary navigation uses larger buttons. My Games and Find Games have
 separate search inputs and retain their own queries when switching tabs.
-Discovery's search area is reserved for future catalog filters.
+Find Games search and its Category and "Runs here" filters are answered by kwakore.
 
 Clicking a discovery card or pressing Enter opens a dedicated store page with
 artwork, creator, description, release information, and required capabilities
@@ -405,7 +508,7 @@ launcher runtime; merely opening details never installs or launches a game.
 
 ## Big Picture library hierarchy
 
-My Games uses a responsive cover grid. Clicking a cover or pressing Enter opens
+My Games uses shelves and a responsive cover grid. Clicking a cover or pressing Enter opens
 its dedicated game page; selecting or opening details never launches a game.
 Back or Escape returns to the same query, selected cover, and scroll position.
 Find Games uses the same browsing model with its own search query.
@@ -419,8 +522,25 @@ Background refreshes preserve the active information tab.
 
 This adopts the references' visual hierarchy without inventing Steam-specific
 data. Play time, last played, achievements, activity, and friends should appear
-only when kwakore exposes meaningful data for them. Version pinning still
-requires the corresponding core API; release history remains read-only.
+only when kwakore exposes meaningful data for them.
+
+The game page's sections, cycled with L1/R1, are Game Info, Releases,
+Snapshots and Permissions (installed games only):
+
+- **Releases** lists kwakore's archived publications (`kwak versions`), marking
+  the installed and latest ones. Choosing another release of an installed game
+  calls `kwak select`, which pins it. Because switching resets the game's saved
+  data and settings, it needs a second press to confirm and is refused while
+  the game runs.
+- **Snapshots** lists frozen versions (`kwak snapshots`) by the creator and by
+  others. Play Now opens one as a trial without installing it. These are kind
+  5129 napplet snapshots, not screenshots.
+- **Permissions** shows declared network access and saved permission answers
+  (`kwak permissions get`) with Allow, Deny and Forget. New `dispatch` allows
+  are not offered, since they need a handler target the API cannot supply.
+
+Ratings, comments and zaps (as in steamduck's store) need social methods
+kwakore does not yet expose, so the launcher does not show them.
 
 ## Explicit build checks
 
@@ -428,3 +548,19 @@ Normal package builds and launches skip the application test suites. Run
 `nix build .#checks.x86_64-linux.kwak-kiosk` to run the kiosk suite, or
 `nix flake check` for all flake checks. CI should select these check targets
 explicitly; launching `nix run .#kwak-kiosk -- --local` does not invoke them.
+
+## Game overlay responsiveness verification
+
+The overlay regression tests cover game-only launch admission, cold font
+inheritance, warm command delivery without spawning another terminal, hide and
+reopen with a new game target, socket cleanup, and reachable controls at 36×20,
+52×28, 80×28, 88×33, and 120×40. Font watcher calls were checked against the
+flake’s Kitty 0.49.1; headless UI tests use packaged Textual 8.2.6.
+
+Graphical acceptance still requires testing Windows/Escape toggles over a real
+fullscreen game, library font changes across monitors, screenshot capture, and
+measuring keypress-to-first-frame and keypress-to-restored-game latency. The
+proposed warm targets are under 100 ms to show and under 50 ms to hide; these
+are targets, not measured results. Cold startup remains a separate measurement.
+Opening the menu requests pause through focus loss; it does not guarantee that
+every game suspends simulation.
